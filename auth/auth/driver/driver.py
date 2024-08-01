@@ -341,6 +341,7 @@ class BillingProjectResource:
 
 
 async def _create_user(app, user, skip_trial_bp, cleanup):
+    log.info(f'CJLDEBUG: creating user {user}')
     db = app['db']
     k8s_client = app['k8s_client']
     identity_client = app['identity_client']
@@ -409,6 +410,10 @@ async def _create_user(app, user, skip_trial_bp, cleanup):
             {'key.json': secret_data},
         )
         updates['hail_credentials_secret_name'] = hail_credentials_secret_name
+    else:
+        log.info(f'CJLDEBUG: reusing existing hail_identity {hail_identity}')
+        if CLOUD == 'gcp':
+            updates['display_name'] = hail_identity
 
     namespace_name = user['namespace_name']
     # auth services in test namespaces cannot/should not be creating and deleting namespaces
