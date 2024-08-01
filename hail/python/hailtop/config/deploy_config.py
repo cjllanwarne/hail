@@ -67,6 +67,9 @@ class DeployConfig:
         self._domain = domain
         self._base_path = base_path
 
+    def __str__(self):
+        return f'DeployConfig(location={self._location}, default_namespace={self._default_namespace}, domain={self._domain}, base_path={self._base_path})'
+
     def with_default_namespace(self, default_namespace):
         return DeployConfig(self._location, default_namespace, self._domain, self._base_path)
 

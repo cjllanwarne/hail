@@ -138,7 +138,7 @@ class TrustedSingleTenantAuthenticator(Authenticator):
 
 
 async def impersonate_user_and_get_info(session_id: str, client_session: httpx.ClientSession):
-    log.info(f'Using deploy config {deploy_config} to calculate auth URL')
+    log.info(f'1: Using deploy config {deploy_config} to calculate auth URL')
     log.info(f'Calling {deploy_config.url("auth", "/api/v1alpha/userinfo")} for userinfo on session')
 
     userinfo_url = deploy_config.url('auth', '/api/v1alpha/userinfo')
