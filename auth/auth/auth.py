@@ -72,6 +72,7 @@ async def get_internal_auth_token(request: web.Request) -> Optional[str]:
 
 class LocalAuthenticator(Authenticator):
     async def _fetch_userdata(self, request: web.Request) -> Optional[UserData]:
+        log.info(f'CJLDEBUG: fetching user data for {request.path}')
         session_id = await get_internal_auth_token(request) or await get_session_id(request)
         if not session_id:
             return None
@@ -422,6 +423,7 @@ async def create_user(request: web.Request, _) -> web.Response:
 @routes.get('/user')
 @auth.authenticated_users_only()
 async def user_page(request: web.Request, userdata: UserData) -> web.Response:
+    log.info(f'CJLDEBUG: fielding request for user_page with userdata: {userdata}')
     return await render_template('auth', request, userdata, 'user.html', {'cloud': CLOUD})
 
 

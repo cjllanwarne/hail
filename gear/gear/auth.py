@@ -59,6 +59,7 @@ class Authenticator(abc.ABC):
         def wrap(fun: AuthenticatedAIOHTTPHandler):
             @wraps(fun)
             async def wrapped(request: web.Request) -> web.StreamResponse:
+                log.info(f'CJLDEBUG: fielding {request.path} via wrapped in authenticated_users_only')
                 userdata = await self._fetch_userdata(request)
                 if not userdata:
                     # Only web routes should redirect by default
