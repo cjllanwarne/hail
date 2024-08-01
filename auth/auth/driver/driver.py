@@ -545,6 +545,7 @@ async def update_users(app):
     creating_users = [x async for x in db.execute_and_fetchall('SELECT * FROM users WHERE state = %s;', 'creating')]
 
     for user in creating_users:
+        log.info(f'CJLDEBUG: processing creation of user {user}')
         await create_user(app, user)
 
     deleting_users = [x async for x in db.execute_and_fetchall('SELECT * FROM users WHERE state = %s;', 'deleting')]

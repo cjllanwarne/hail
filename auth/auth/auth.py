@@ -158,6 +158,7 @@ async def insert_new_user(
     async def _insert(tx):
         existing_user = await check_valid_new_user(tx, username, login_id, is_developer, is_service_account)
         if existing_user is not None:
+            log.info(f'CJLDEBUG: Not re-inserting existing user {username}. This condition should only be reached in test namespaces.')
             return False
 
         await tx.execute_insertone(
