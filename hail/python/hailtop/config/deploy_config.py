@@ -189,3 +189,9 @@ def get_deploy_config() -> DeployConfig:
         else:
             deploy_config = DeployConfig.from_config_file()
     return deploy_config
+
+# If run from the command line -
+if __name__ == '__main__':
+    # Call the function
+    dc = DeployConfig(location='k8s', default_namespace='chrisl', domain='internal.hail.is', base_path='/chrisl')
+    print(dc)
