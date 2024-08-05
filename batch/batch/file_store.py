@@ -46,10 +46,12 @@ class FileStore:
 
     async def read_log_file(self, format_version, batch_id, job_id, attempt_id, task) -> bytes:
         url = self.log_path(format_version, batch_id, job_id, attempt_id, task)
+        log.info(f'CJLDEBUG: Attempting to read log file from {url}')
         return await self.fs.read(url)
 
     async def write_log_file(self, format_version, batch_id, job_id, attempt_id, task, data: bytes):
         url = self.log_path(format_version, batch_id, job_id, attempt_id, task)
+        log.info(f'CJLDEBUG: Writing log file {url} to file store')
         await self.fs.write(url, data)
 
     async def write_jvm_profile(self, format_version, batch_id, job_id, attempt_id, task, data):
