@@ -570,8 +570,9 @@ async def schedule_job(app, record, instance):
 
     try:
         body = await job_config(app, record)
-    except Exception:
+    except Exception as e:
         log.exception(f'while making job config for job {id} with attempt id {attempt_id}')
+        log.exception(f'CJLDEBUG: {e} caught while making job config for job {id} with attempt id {attempt_id}')
 
         await mark_job_errored(
             app, batch_id, job_group_id, job_id, attempt_id, record['user'], format_version, traceback.format_exc()
