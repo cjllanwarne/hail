@@ -12,11 +12,14 @@ import traceback
 from contextlib import AsyncExitStack
 from functools import wraps
 from numbers import Number
-from typing import Any, Awaitable, Callable, Dict, List, NoReturn, Optional, Tuple, TypeVar, Union, cast
+from typing import Any, Awaitable, Callable, Dict, List, NoReturn, Optional, Tuple, TypeVar, Union, cast, Literal
 
 import aiohttp
 import aiohttp.web_exceptions
 import aiohttp_session
+from aiohttp_apischema import SchemaGenerator
+SCHEMA = SchemaGenerator()
+from aiohttp_apischema import APIResponse
 import humanize
 import pandas as pd
 import plotly
@@ -231,9 +234,10 @@ def deprecated(fun):
     return wrapped
 
 
+@SCHEMA.api()
 @routes.get('/healthcheck')
-async def get_healthcheck(_) -> web.Response:
-    return web.Response()
+async def get_healthcheck(_) -> APIResponse[None, Literal[200]]:
+    return APIResponse()
 
 
 @routes.get('/api/v1alpha/version')
