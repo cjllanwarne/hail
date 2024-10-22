@@ -244,13 +244,13 @@ async def get_healthcheck(_) -> APIResponse[None, Literal[200]]:
 @SCHEMA.api()
 @routes.get('/api/v1alpha/version')
 async def rest_get_version(_) -> APIResponse[str, Literal[200]]:
-    return APIResponse(text=version())
+    return APIResponse(version())
 
 
 @SCHEMA.api()
 @routes.get('/api/v1alpha/cloud')
 async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
-    return as_api_response(web.Response(text=CLOUD))
+    return as_api_response(web.Response(CLOUD))
 
 
 # @SCHEMA.api()
@@ -261,6 +261,7 @@ async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
     # return as_api_response(json_response(list(request.app['regions'].keys())))
 
 @SCHEMA.api()
+@routes.get('/api/v1alpha/foo')
 async def foo(request: web.Request) -> APIResponse[list[str], Literal[200]]:
     return APIResponse(["foo"])
 
