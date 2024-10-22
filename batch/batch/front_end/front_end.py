@@ -253,12 +253,16 @@ async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
     return as_api_response(web.Response(text=CLOUD))
 
 
-@SCHEMA.api()
-@routes.get('/api/v1alpha/supported_regions')
+# @SCHEMA.api()
+# @routes.get('/api/v1alpha/supported_regions')
 # @auth.authenticated_users_only()
-async def rest_get_supported_regions(request: web.Request, _) -> APIResponse[list[str], Literal[200]]:
-    return APIResponse(['foo', 'bar'])
+# async def rest_get_supported_regions(request: web.Request) -> APIResponse[list[str], Literal[200]]:
+#     return APIResponse(['foo', 'bar'])
     # return as_api_response(json_response(list(request.app['regions'].keys())))
+
+@SCHEMA.api()
+async def foo(request: web.Request) -> APIResponse[list[str], Literal[200]]:
+    return APIResponse(["foo"])
 
 
 async def _handle_ui_error(
