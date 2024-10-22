@@ -3,6 +3,7 @@ from typing import Any, Callable, Optional
 
 import orjson
 from aiohttp import web
+from aiohttp import ApiResponse
 
 
 async def json_request(request: web.Request) -> Any:
@@ -13,3 +14,6 @@ def json_response(
     data: Any, fallback_serializer: Optional[Callable[[Any], Any]] = None, headers: Optional[Mapping] = None
 ) -> web.Response:
     return web.json_response(body=orjson.dumps(data, default=fallback_serializer), headers=headers)
+
+def as_api_response(r: web.Response) -> ApiResponse:
+    return ApiResponse(body=r.body, headers=r.headers, status=r.status)

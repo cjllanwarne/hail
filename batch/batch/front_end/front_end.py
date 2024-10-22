@@ -32,6 +32,7 @@ from prometheus_async.aio.web import server_stats  # type: ignore
 from typing_extensions import ParamSpec
 
 from gear import (
+    as_api_response,
     CommonAiohttpAppKeys,
     Database,
     Transaction,
@@ -237,23 +238,25 @@ def deprecated(fun):
 @SCHEMA.api()
 @routes.get('/healthcheck')
 async def get_healthcheck(_) -> APIResponse[None, Literal[200]]:
-    return APIResponse('')
+    return as_api_response(web.Response())
 
 
+@SCHEMA.api()
 @routes.get('/api/v1alpha/version')
-async def rest_get_version(_) -> web.Response:
-    return web.Response(text=version())
+async def rest_get_version(_) -> APIResponse[str, Literal[200]]:
+    return as_api_response(web.Response(text=version()))
 
 
+@SCHEMA.api()
 @routes.get('/api/v1alpha/cloud')
-async def rest_cloud(_) -> web.Response:
-    return web.Response(text=CLOUD)
+async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
+    return as_api_response(web.Response(text=CLOUD))
 
 
 @routes.get('/api/v1alpha/supported_regions')
 @auth.authenticated_users_only()
-async def rest_get_supported_regions(request: web.Request, _) -> web.Response:
-    return json_response(list(request.app['regions'].keys()))
+async def rest_get_supported_regions(request: web.Request, _) -> APIResponse[list[str], Literal[200]]:
+    return as_api_response(json_response(list(request.app['regions'].keys())))
 
 
 async def _handle_ui_error(
