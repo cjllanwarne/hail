@@ -237,7 +237,7 @@ def deprecated(fun):
 @SCHEMA.api()
 @routes.get('/healthcheck')
 async def get_healthcheck(_) -> APIResponse[None, Literal[200]]:
-    return APIResponse()
+    return APIResponse('')
 
 
 @routes.get('/api/v1alpha/version')
