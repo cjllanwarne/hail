@@ -16,4 +16,4 @@ def json_response(
     return web.json_response(body=orjson.dumps(data, default=fallback_serializer), headers=headers)
 
 def as_api_response(r: web.Response) -> APIResponse:
-    return APIResponse(body=r.body, headers=r.headers, status=r.status)
+    return APIResponse(text=r.text, headers=r.headers, status=r.status, content_type=r.content_type)
