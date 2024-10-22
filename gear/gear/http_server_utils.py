@@ -3,7 +3,7 @@ from typing import Any, Callable, Optional
 
 import orjson
 from aiohttp import web
-from aiohttp import ApiResponse
+from aiohttp_apischema import APIResponse
 
 
 async def json_request(request: web.Request) -> Any:
