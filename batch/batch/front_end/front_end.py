@@ -253,25 +253,6 @@ async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
     return APIResponse(CLOUD)
 
 
-# @SCHEMA.api()
-# @routes.get('/api/v1alpha/supported_regions')
-# @auth.authenticated_users_only()
-# async def rest_get_supported_regions(request: web.Request) -> APIResponse[list[str], Literal[200]]:
-#     return APIResponse(['foo', 'bar'])
-    # return as_api_response(json_response(list(request.app['regions'].keys())))
-
-@SCHEMA.api()
-@routes.get('/api/v1alpha/foo')
-async def foo(request: web.Request) -> APIResponse[list[str], Literal[200]]:
-    return APIResponse(["foo"])
-
-
-@SCHEMA.api()
-@routes.get('/api/v1alpha/foo2')
-async def foo2(request: web.Request) -> APIResponse[list[str], Literal[200]]:
-    return APIResponse(list(request.app['regions'].keys()))
-
-
 async def validate_authenticated_users_only(r: web.Request):
     userdata = await auth._fetch_userdata(r)
     if not userdata:
@@ -280,7 +261,7 @@ async def validate_authenticated_users_only(r: web.Request):
 
 
 @SCHEMA.api()
-@routes.get('/api/v1alpha/foo3')
+@routes.get('/api/v1alpha/supported_regions')
 async def foo3(request: web.Request) -> APIResponse[list[str], Literal[200]]:
     _ = await validate_authenticated_users_only(request)
     return APIResponse(list(request.app['regions'].keys()))
