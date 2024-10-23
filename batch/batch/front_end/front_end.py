@@ -265,6 +265,18 @@ async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
 async def foo(request: web.Request) -> APIResponse[list[str], Literal[200]]:
     return APIResponse(["foo"])
 
+@SCHEMA.api()
+@routes.get('/api/v1alpha/foo2')
+async def foo2(request: web.Request) -> APIResponse[list[str], Literal[200]]:
+    return APIResponse(list(request.app['regions'].keys()))
+
+
+@SCHEMA.api()
+@routes.get('/api/v1alpha/foo3')
+@auth.authenticated_users_only()
+async def foo3(request: web.Request) -> APIResponse[list[str], Literal[200]]:
+    return APIResponse(list(request.app['regions'].keys()))
+
 
 async def _handle_ui_error(
     session: aiohttp_session.Session, f: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
