@@ -250,7 +250,7 @@ async def rest_get_version(_) -> APIResponse[str, Literal[200]]:
 @SCHEMA.api()
 @routes.get('/api/v1alpha/cloud')
 async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
-    return as_api_response(web.Response(CLOUD))
+    return APIResponse(CLOUD)
 
 
 # @SCHEMA.api()
@@ -265,16 +265,24 @@ async def rest_cloud(_) -> APIResponse[str, Literal[200]]:
 async def foo(request: web.Request) -> APIResponse[list[str], Literal[200]]:
     return APIResponse(["foo"])
 
+
 @SCHEMA.api()
 @routes.get('/api/v1alpha/foo2')
 async def foo2(request: web.Request) -> APIResponse[list[str], Literal[200]]:
     return APIResponse(list(request.app['regions'].keys()))
 
 
+async def validate_authenticated_users_only(r: web.Request):
+    userdata = await auth._fetch_userdata(r)
+    if not userdata:
+        raise web.HTTPUnauthorized()
+    return userdata
+
+
 @SCHEMA.api()
 @routes.get('/api/v1alpha/foo3')
-@auth.authenticated_users_only()
 async def foo3(request: web.Request) -> APIResponse[list[str], Literal[200]]:
+    _ = await validate_authenticated_users_only(request)
     return APIResponse(list(request.app['regions'].keys()))
 
 
