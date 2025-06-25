@@ -332,6 +332,7 @@ sequenceDiagram
     participant JM as Job Matcher
     participant ICM as Instance Collection Manager
     participant W as Worker
+    participant BD as Batch Driver
     participant DB as Database
     
     loop Every second
@@ -345,8 +346,10 @@ sequenceDiagram
         S->>DB: Schedule jobs (SJ)
         S->>W: Send job via HTTP POST
         W->>W: Execute job
-        W->>DB: Mark job started (MJS)
-        W->>DB: Mark job complete (MJC)
+        W->>BD: POST /api/v1alpha/instances/job_started
+        BD->>DB: Mark job started (MJS)
+        W->>BD: POST /api/v1alpha/instances/job_complete
+        BD->>DB: Mark job complete (MJC)
     end
 ```
 
@@ -390,6 +393,7 @@ sequenceDiagram
     participant AS as Autoscaler
     participant ICM as Instance Manager
     participant W as Worker
+    participant BD as Batch Driver
     participant DB as Database
     
     U->>FE: Submit batch
@@ -402,10 +406,12 @@ sequenceDiagram
         AS->>ICM: Create instances if needed
         SC->>ICM: Get available instances
         SC->>W: Schedule jobs
-        W->>DB: Update job states
+        W->>BD: Report job status via HTTP
+        BD->>DB: Update job states
     end
     
-    W->>FE: Report job completion
+    W->>BD: Report job completion
+    BD->>FE: Update batch status
     FE->>U: Update batch status
 ```
 
