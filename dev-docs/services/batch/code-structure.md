@@ -406,9 +406,9 @@ sequenceDiagram
     U->>FE: Submit batch
     FE->>DB: Store batch & jobs
     FE->>BDAPI: Notify new work available
-    
-    loop Scheduling Loop
-        BDAPI->>SC: Wake up scheduling loop
+    BDAPI->>SC: Wake up scheduling loop
+
+    loop Scheduling Loop    
         SC->>DB: Query ready jobs
         SC->>AS: Check if scaling needed
         AS->>ICM: Create instances if needed
