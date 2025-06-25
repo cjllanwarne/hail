@@ -389,7 +389,7 @@ graph TB
 sequenceDiagram
     participant U as User
 
-    box BS as "Batch Service" rgb(191, 223, 255)
+    box "Batch Service" rgb(191, 223, 255)
         participant FE as Frontend
     end
     
