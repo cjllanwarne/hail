@@ -394,10 +394,10 @@ sequenceDiagram
     end
 
     box "Batch Driver"
+        participant BDAPI as Batch Driver API
         participant SC as Scheduler
         participant AS as Autoscaler
         participant ICM as Instance Manager    
-        participant BDAPI as Batch Driver API
     end
 
     participant W as Worker
@@ -405,7 +405,7 @@ sequenceDiagram
 
     U->>FE: Submit batch
     FE->>DB: Store batch & jobs
-    FE->>SC: Notify new work available
+    FE->>BDAPI: Notify new work available
     
     loop Scheduling Loop
         SC->>DB: Query ready jobs
