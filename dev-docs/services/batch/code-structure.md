@@ -392,7 +392,7 @@ sequenceDiagram
     box "Batch Service"
         participant FE as Frontend
     end
-    style "Batch Service" fill:#f0f0f0,stroke:#333
+    style "Batch Service"
     
 
     box "Batch Driver"
@@ -401,7 +401,7 @@ sequenceDiagram
         participant ICM as Instance Manager    
         participant BDAPI as Batch Driver API
     end
-    style "Batch Driver" fill:#f0f0f0,stroke:#333
+    style "Batch Driver"
 
     participant W as Worker
     participant DB as Database
