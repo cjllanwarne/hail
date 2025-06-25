@@ -388,14 +388,21 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant FE as Frontend
-    participant SC as Scheduler
-    participant AS as Autoscaler
-    participant ICM as Instance Manager
-    participant W as Worker
-    participant BD as Batch Driver
-    participant DB as Database
+
+    box "Batch Service"
+        participant FE as Frontend
+    end
+
+    box "Batch Driver"
+        participant SC as Scheduler
+        participant AS as Autoscaler
+        participant ICM as Instance Manager    
+        participant BDAPI as Batch Driver API
+    end
     
+    participant W as Worker
+    participant DB as Database
+
     U->>FE: Submit batch
     FE->>DB: Store batch & jobs
     FE->>SC: Notify new work available
@@ -406,13 +413,15 @@ sequenceDiagram
         AS->>ICM: Create instances if needed
         SC->>ICM: Get available instances
         SC->>W: Schedule jobs
-        W->>BD: Report job status via HTTP
-        BD->>DB: Update job states
+        W->>BDAPI: Report job status via HTTP
+        BDAPI->>DB: Update job states
     end
     
-    W->>BD: Report job completion
-    BD->>FE: Update batch status
-    FE->>U: Update batch status
+    W->>BDAPI: Report job completion
+    U->>FE: Request batch status
+    FE->>DB: Query batch status
+    DB->>FE: Return batch status
+    FE->>U: Return batch status
 ```
 
 ## Key Interfaces Between Components
