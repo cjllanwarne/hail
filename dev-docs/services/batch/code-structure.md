@@ -10,23 +10,23 @@ The Hail Batch codebase is organized into several main packages, each responsibl
 
 ```mermaid
 graph TB
-    subgraph "batch/"
+    subgraph "hail/batch/"
         subgraph "batch/"
-            DR[driver/]
-            CL[cloud/]
-            WR[worker/]
-            FR[front_end/]
-            UT[utils/]
-        end
-        
-        subgraph "batch/driver/"
-            DC[driver.py]
-            IC[instance_collection/]
-            IN[instance.py]
-            JO[job.py]
-            RM[resource_manager.py]
-            LO[location.py]
-            CA[canceller.py]
+                DR[driver/]
+                CL[cloud/]
+                WR[worker/]
+                FR[front_end/]
+                UT[utils/]
+
+            subgraph "batch/driver/"
+                DC[driver.py]
+                IC[instance_collection/]
+                IN[instance.py]
+                JO[job.py]
+                RM[resource_manager.py]
+                LO[location.py]
+                CA[canceller.py]
+            end
         end
         
         subgraph "batch/cloud/"
