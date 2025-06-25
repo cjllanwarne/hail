@@ -48,6 +48,9 @@ graph TB
     ICM --> WN
     RM --> ICM
     BM --> ICM
+    SC --> W1
+    SC --> W2
+    SC --> WN
 ```
 
 ## Component 1: Batch/DAG Interpreter
@@ -328,7 +331,7 @@ sequenceDiagram
     participant FS as Fair Share
     participant JM as Job Matcher
     participant ICM as Instance Collection Manager
-    participant W as Worker VM
+    participant W as Worker
     participant DB as Database
     
     loop Every second
@@ -340,7 +343,10 @@ sequenceDiagram
         ICM->>JM: Return instance list
         JM->>S: Return job-instance matches
         S->>DB: Schedule jobs (SJ)
-        S->>W: Send jobs to workers
+        S->>W: Send job via HTTP POST
+        W->>W: Execute job
+        W->>DB: Mark job started (MJS)
+        W->>DB: Mark job complete (MJC)
     end
 ```
 
