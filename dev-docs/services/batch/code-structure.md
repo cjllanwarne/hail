@@ -392,8 +392,6 @@ sequenceDiagram
     box "Batch Service"
         participant FE as Frontend
     end
-    style "Batch Service"
-    
 
     box "Batch Driver"
         participant SC as Scheduler
@@ -401,7 +399,6 @@ sequenceDiagram
         participant ICM as Instance Manager    
         participant BDAPI as Batch Driver API
     end
-    style "Batch Driver"
 
     participant W as Worker
     participant DB as Database
