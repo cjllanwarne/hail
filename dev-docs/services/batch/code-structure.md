@@ -413,11 +413,14 @@ sequenceDiagram
         AS->>ICM: Create instances if needed
         SC->>ICM: Get available instances
         SC->>W: Schedule jobs
+    end
+
+    loop Status Loop
         W->>BDAPI: Report job status via HTTP
         BDAPI->>DB: Update job states
+        BDAPI->>SC: Wake up scheduling loop
     end
     
-    W->>BDAPI: Report job completion
     U->>FE: Request batch status
     FE->>DB: Query batch status
     DB->>FE: Return batch status
