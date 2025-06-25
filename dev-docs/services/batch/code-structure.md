@@ -389,18 +389,19 @@ graph TB
 sequenceDiagram
     participant U as User
 
-    box "Batch Service" fill:#f0f0f0,stroke:#333,stroke-width:2px
+    box "Batch Service"
         participant FE as Frontend
     end
+    style "Batch Service" fill:#f0f0f0,stroke:#333
     
 
-    box BD as "Batch Driver"
+    box "Batch Driver"
         participant SC as Scheduler
         participant AS as Autoscaler
         participant ICM as Instance Manager    
         participant BDAPI as Batch Driver API
     end
-
+    style "Batch Driver" fill:#f0f0f0,stroke:#333
 
     participant W as Worker
     participant DB as Database
