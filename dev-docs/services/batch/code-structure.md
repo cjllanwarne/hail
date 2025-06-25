@@ -29,7 +29,7 @@ graph TB
             end
         end
         
-        subgraph "batch/cloud/"
+        subgraph CL
             CD[driver.py]
             subgraph "gcp/"
                 GD[driver/]
