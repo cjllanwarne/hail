@@ -408,6 +408,7 @@ sequenceDiagram
     FE->>BDAPI: Notify new work available
     
     loop Scheduling Loop
+        BDAPI->>SC: Wake up scheduling loop
         SC->>DB: Query ready jobs
         SC->>AS: Check if scaling needed
         AS->>ICM: Create instances if needed
