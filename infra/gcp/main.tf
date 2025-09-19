@@ -201,6 +201,10 @@ resource "google_container_cluster" "vdc" {
   workload_identity_config {
     workload_pool = "${var.gcp_project}.svc.id.goog"
   }
+
+  control_plane_endpoints_config {
+    allow_external_traffic = true
+  }
 }
 
 resource "google_container_node_pool" "vdc_preemptible_pool" {
