@@ -5,6 +5,10 @@ terraform {
       # Updated 2024-08-08 to avoid race conditions during rapid service account creation
       version = "5.40.0"
     }
+    google-beta = {
+      source = "hashicorp/google-beta"
+      version = "5.40.0"
+    }
     kubernetes = {
       source = "hashicorp/kubernetes"
       version = "2.8.0"
@@ -202,8 +206,10 @@ resource "google_container_cluster" "vdc" {
     workload_pool = "${var.gcp_project}.svc.id.goog"
   }
 
-  control_plane_endpoints_config {
-    allow_external_traffic = true
+  private_cluster_config {
+    enable_private_nodes    = true
+    enable_private_endpoint = true
+    master_ipv4_cidr_block  = "172.16.0.0/28"
   }
 }
 

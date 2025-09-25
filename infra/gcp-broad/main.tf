@@ -2,7 +2,11 @@ terraform {
   required_providers {
     google = {
       source = "hashicorp/google"
-      version = "5.15.0"
+      version = "5.40.0"
+    }
+    google-beta = {
+      source = "hashicorp/google-beta"
+      version = "5.40.0"
     }
     kubernetes = {
       source = "hashicorp/kubernetes"
@@ -257,6 +261,12 @@ resource "google_container_cluster" "vdc" {
   
   workload_identity_config {
     workload_pool = "${var.gcp_project}.svc.id.goog"
+  }
+
+  private_cluster_config {
+    enable_private_nodes    = true
+    enable_private_endpoint = true
+    master_ipv4_cidr_block  = "172.16.0.0/28"
   }
 }
 
