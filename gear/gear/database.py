@@ -97,6 +97,8 @@ async def resolve_test_db_endpoint(sql_config: SQLConfig) -> SQLConfig:
         client = kubernetes_asyncio.client.CoreV1Api(api)
         db_service = await client.read_namespaced_service(service_name, namespace)  # type: ignore
         db_pod = await client.read_namespaced_pod(f'{db_service.spec.selector["app"]}-0', namespace)  # type: ignore
+        print(f'db_pod: {db_pod}')
+
         sql_config_dict = sql_config.to_dict()
         sql_config_dict['host'] = db_pod.status.host_ip  # type: ignore
         sql_config_dict['port'] = db_service.spec.ports[0].node_port  # type: ignore
