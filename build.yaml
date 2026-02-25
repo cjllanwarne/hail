@@ -2105,6 +2105,9 @@ steps:
       - name: add-service-rate-limits
         script: /io/sql/006-add-service-rate-limits.sql
         online: true
+      - name: flaky-test-tracking
+        script: /io/sql/007-flaky-test-tracking.sql
+        online: true
     inputs:
       - from: /repo/ci/sql
         to: /io/sql

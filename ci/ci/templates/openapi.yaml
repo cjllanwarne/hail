@@ -27,6 +27,8 @@ tags:
     description: "Endpoints for API documentation"
   - name: UI Pages
     description: "Web UI pages and related helpers"
+  - name: Flakiness
+    description: "Endpoints for declaring and tracking flaky tests"
 
 components:
   schemas:
@@ -212,6 +214,73 @@ paths:
             application/json:
               schema:
                 type: object
+
+  '/api/watched_branches/{watched_branch_index}/pr/{pr_number}/declare_flaky':
+    post:
+      summary: "Declare flaky tests"
+      description: "Declare failed jobs as flaky and either retry the build or mark the PR as succeeded."
+      tags: [Flakiness]
+      security:
+        - developerAuth: []
+      parameters:
+        - name: watched_branch_index
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: pr_number
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - action
+                - confirmed
+                - job_id
+              properties:
+                action:
+                  type: string
+                  enum: [retry, ignore]
+                  description: "retry — invalidate batch and trigger a new run; ignore — mark PR as succeeded"
+                confirmed:
+                  type: string
+                  description: "Must be '1' to confirm all failures were manually reviewed"
+                job_id:
+                  type: array
+                  items:
+                    type: string
+                  description: "List of 'job_id:job_name' strings for every failed/error job"
+      responses:
+        '200':
+          description: "Declaration recorded successfully"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  action:
+                    type: string
+        '400':
+          description: "Invalid request (missing fields, unacknowledged failures, etc.)"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - requires developer privileges
 
   '/watched_branches/{watched_branch_index}/pr/{pr_number}/retry':
     post:
@@ -663,6 +732,161 @@ paths:
       responses:
         '200':
           description: Namespace added successfully
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - requires developer privileges
+
+  /flakiness:
+    get:
+      summary: "Flakiness Dashboard (UI)"
+      description: "Render the flakiness leaderboard showing the most frequently declared flaky jobs."
+      tags: [Flakiness]
+      security:
+        - developerAuth: []
+      parameters:
+        - name: days
+          in: query
+          description: "Number of days to look back (default 30)"
+          schema:
+            type: integer
+            default: 30
+        - name: limit
+          in: query
+          description: "Maximum number of rows (default 30)"
+          schema:
+            type: integer
+            default: 30
+        - name: x-hail-return-jinja-context
+          in: header
+          description: "Do not render, and instead return the jinja context json."
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: "Successfully rendered the flakiness dashboard."
+
+  '/flakiness/{job_name}':
+    get:
+      summary: "Per-job flakiness history (UI)"
+      description: "Render the flakiness history for a specific job."
+      tags: [Flakiness]
+      security:
+        - developerAuth: []
+      parameters:
+        - name: job_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: "Maximum number of rows (default 50)"
+          schema:
+            type: integer
+            default: 50
+        - name: x-hail-return-jinja-context
+          in: header
+          description: "Do not render, and instead return the jinja context json."
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: "Successfully rendered the job flakiness history."
+
+  /api/flakiness/leaderboard:
+    get:
+      summary: "Flakiness leaderboard (JSON)"
+      description: "Return the most frequently declared flaky jobs as JSON."
+      tags: [Flakiness]
+      security:
+        - developerAuth: []
+      parameters:
+        - name: days
+          in: query
+          description: "Number of days to look back (default 30)"
+          schema:
+            type: integer
+            default: 30
+        - name: limit
+          in: query
+          description: "Maximum number of rows (default 20)"
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: "Leaderboard rows"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    job_name:
+                      type: string
+                    total:
+                      type: integer
+                    retries:
+                      type: integer
+                    ignores:
+                      type: integer
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - requires developer privileges
+
+  '/api/flakiness/failures/{job_name}':
+    get:
+      summary: "Per-job flakiness failures (JSON)"
+      description: "Return the flakiness declaration history for a specific job as JSON."
+      tags: [Flakiness]
+      security:
+        - developerAuth: []
+      parameters:
+        - name: job_name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: "Maximum number of rows (default 10)"
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: "Failure history rows"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    batch_id:
+                      type: integer
+                    job_id:
+                      type: integer
+                    declared_at:
+                      type: string
+                      format: date-time
+                    declared_by:
+                      type: string
+                    action:
+                      type: string
+                    pr_number:
+                      type: integer
+                      nullable: true
+                    source_sha:
+                      type: string
+                      nullable: true
         '401':
           description: Unauthorized
         '403':

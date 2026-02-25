@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}Flakiness: {{ job_name }}{% endblock %}
+{% block content %}
+<h1>Flakiness history: <code>{{ job_name }}</code></h1>
+<p><a href="{{ base_path }}/flakiness">&#x2190; Back to dashboard</a></p>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Declared</th><th>Action</th><th>PR</th><th>Batch</th><th>Job</th><th>By</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in failures %}
+    <tr>
+      <td>{{ f['declared_at'] }}</td>
+      <td>{{ f['action'] }}</td>
+      <td>
+        {% if f['pr_number'] %}
+        <a href="https://github.com/hail-is/hail/pull/{{ f['pr_number'] }}">#{{ f['pr_number'] }}</a>
+        {% endif %}
+      </td>
+      <td><a href="{{ base_path }}/batches/{{ f['batch_id'] }}">{{ f['batch_id'] }}</a></td>
+      <td><a href="{{ base_path }}/batches/{{ f['batch_id'] }}/jobs/{{ f['job_id'] }}">{{ f['job_id'] }}</a></td>
+      <td>{{ f['declared_by'] }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6">No failures recorded for this job.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

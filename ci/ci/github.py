@@ -661,6 +661,16 @@ mkdir -p {shq(repo_dir)}
                 self.set_build_state('failure')
                 self.source_sha_failed = True
             self.target_branch.state_changed = True
+            # If this batch was declared as ignored flakiness, override build state so the
+            # loop doesn't re-post failure to GitHub on the next cycle.
+            if self.build_state == 'failure' and min_batch is not None:
+                row = await db.execute_and_fetchone(
+                    "SELECT 1 FROM flaky_batch_declarations WHERE batch_id = %s AND action = 'ignore';",
+                    min_batch.id,
+                )
+                if row is not None:
+                    self.set_build_state('success')
+                    self.source_sha_failed = False
 
     async def _heal(self, batch_client, db: Database, on_deck, gh):
         # can't merge target if we don't know what it is

@@ -262,6 +262,172 @@ async def post_retry_pr(request: web.Request, _) -> NoReturn:
     raise web.HTTPFound(deploy_config.external_url('ci', f'/watched_branches/{wb.index}/pr/{pr.number}'))
 
 
+async def _do_declare_flaky(wb: WatchedBranch, pr: PR, app, userdata: UserData, data):
+    """Core logic for declare-flaky — separated so it can be called inside asyncio.shield."""
+    if pr.batch is None or isinstance(pr.batch, MergeFailureBatch):
+        return {'error': 'No valid batch to declare flaky.'}
+
+    action = data.get('action')
+    if action not in ('retry', 'ignore'):
+        return {'error': 'Invalid action.'}
+
+    if not data.get('confirmed'):
+        return {'error': 'You must confirm you have reviewed all failures.'}
+
+    submitted_job_ids = set(data.getall('job_id', []))  # values are "job_id:job_name"
+    if not submitted_job_ids:
+        return {'error': 'No jobs submitted.'}
+
+    # Server-side validation: fetch actual failed jobs and check all were submitted
+    batch = pr.batch
+    jobs = [j async for j in batch.jobs()]
+    actually_failed = {f"{j['job_id']}:{j['name']}" for j in jobs if j['state'].lower() in ('failed', 'error')}
+    if actually_failed - submitted_job_ids:
+        return {'error': 'Not all failed jobs were acknowledged.'}
+
+    db = app[AppKeys.DB]
+    declared_by = userdata['username']
+    declaration_id = await db.execute_insertone(
+        '''INSERT INTO flaky_batch_declarations
+           (batch_id, action, declared_by, pr_number, source_sha)
+           VALUES (%s, %s, %s, %s, %s)''',
+        batch.id,
+        action,
+        declared_by,
+        pr.number,
+        pr.source_sha,
+    )
+    for entry in submitted_job_ids:
+        jid, jname = entry.split(':', 1)
+        await db.execute_insertone(
+            'INSERT INTO flaky_job_declarations (declaration_id, job_id, job_name) VALUES (%s, %s, %s)',
+            declaration_id,
+            int(jid),
+            jname,
+        )
+
+    if action == 'retry':
+        await db.execute_insertone('INSERT INTO invalidated_batches (batch_id) VALUES (%s);', batch.id)
+
+    await wb.notify_batch_changed(
+        db, app[AppKeys.BATCH_CLIENT], app[AppKeys.GH_CLIENT], app[AppKeys.FROZEN_MERGE_DEPLOY]
+    )
+    return {'status': 'ok', 'action': action}
+
+
+@routes.post('/api/watched_branches/{watched_branch_index}/pr/{pr_number}/declare_flaky')
+@web_security_headers
+@auth.authenticated_developers_only(redirect=False)
+async def post_declare_flaky(request: web.Request, userdata: UserData) -> web.Response:
+    wb, pr = wb_and_pr_from_request(request)
+    data = await request.post()
+    result = await asyncio.shield(_do_declare_flaky(wb, pr, request.app, userdata, data))
+    if 'error' in result:
+        return web.json_response(result, status=400)
+    return web.json_response(result)
+
+
+@routes.get('/flakiness')
+@web_security_headers
+@auth.authenticated_developers_only()
+async def get_flakiness_dashboard(request: web.Request, userdata: UserData) -> web.Response:
+    db = request.app[AppKeys.DB]
+    days = int(request.rel_url.query.get('days', 30))
+    limit = int(request.rel_url.query.get('limit', 30))
+    leaderboard = [
+        r
+        async for r in db.execute_and_fetchall(
+            '''SELECT fjd.job_name,
+                      COUNT(*) AS total,
+                      SUM(fbd.action = 'retry') AS retries,
+                      SUM(fbd.action = 'ignore') AS ignores
+               FROM flaky_job_declarations fjd
+               JOIN flaky_batch_declarations fbd ON fjd.declaration_id = fbd.id
+               WHERE fbd.declared_at >= NOW() - INTERVAL %s DAY
+               GROUP BY fjd.job_name
+               ORDER BY total DESC
+               LIMIT %s''',
+            days,
+            limit,
+        )
+    ]
+    return await render_template(
+        'ci', request, userdata, 'flakiness_dashboard.html', {'leaderboard': leaderboard, 'days': days}
+    )
+
+
+@routes.get('/flakiness/{job_name}')
+@web_security_headers
+@auth.authenticated_developers_only()
+async def get_flakiness_job(request: web.Request, userdata: UserData) -> web.Response:
+    db = request.app[AppKeys.DB]
+    job_name = request.match_info['job_name']
+    limit = int(request.rel_url.query.get('limit', 50))
+    failures = [
+        r
+        async for r in db.execute_and_fetchall(
+            '''SELECT fbd.batch_id, fjd.job_id, fbd.declared_at, fbd.declared_by,
+                      fbd.action, fbd.pr_number, fbd.source_sha
+               FROM flaky_job_declarations fjd
+               JOIN flaky_batch_declarations fbd ON fjd.declaration_id = fbd.id
+               WHERE fjd.job_name = %s
+               ORDER BY fbd.declared_at DESC
+               LIMIT %s''',
+            job_name,
+            limit,
+        )
+    ]
+    return await render_template(
+        'ci', request, userdata, 'flakiness_job.html', {'job_name': job_name, 'failures': failures}
+    )
+
+
+@routes.get('/api/flakiness/leaderboard')
+@web_security_headers
+@auth.authenticated_developers_only(redirect=False)
+async def api_flakiness_leaderboard(request: web.Request, _) -> web.Response:
+    db = request.app[AppKeys.DB]
+    days = int(request.rel_url.query.get('days', 30))
+    limit = int(request.rel_url.query.get('limit', 20))
+    rows = [
+        r
+        async for r in db.execute_and_fetchall(
+            '''SELECT fjd.job_name, COUNT(*) AS total,
+                      SUM(fbd.action = 'retry') AS retries,
+                      SUM(fbd.action = 'ignore') AS ignores
+               FROM flaky_job_declarations fjd
+               JOIN flaky_batch_declarations fbd ON fjd.declaration_id = fbd.id
+               WHERE fbd.declared_at >= NOW() - INTERVAL %s DAY
+               GROUP BY fjd.job_name ORDER BY total DESC LIMIT %s''',
+            days,
+            limit,
+        )
+    ]
+    return web.json_response([dict(r) for r in rows])
+
+
+@routes.get('/api/flakiness/failures/{job_name}')
+@web_security_headers
+@auth.authenticated_developers_only(redirect=False)
+async def api_flakiness_failures(request: web.Request, _) -> web.Response:
+    db = request.app[AppKeys.DB]
+    job_name = request.match_info['job_name']
+    limit = int(request.rel_url.query.get('limit', 10))
+    rows = [
+        r
+        async for r in db.execute_and_fetchall(
+            '''SELECT fbd.batch_id, fjd.job_id, fbd.declared_at, fbd.declared_by,
+                      fbd.action, fbd.pr_number, fbd.source_sha
+               FROM flaky_job_declarations fjd
+               JOIN flaky_batch_declarations fbd ON fjd.declaration_id = fbd.id
+               WHERE fjd.job_name = %s ORDER BY fbd.declared_at DESC LIMIT %s''',
+            job_name,
+            limit,
+        )
+    ]
+    return web.json_response([dict(r) for r in rows])
+
+
 @routes.get('/batches')
 @web_security_headers
 @auth.authenticated_developers_only()

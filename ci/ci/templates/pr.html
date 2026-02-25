@@ -3,6 +3,7 @@
 {% block title %}PR {{ number }}{% endblock %}
 {% block head %}
     <script defer src="{{ base_path }}/common_static/focus_on_keyup.js"></script>
+    <script defer src="{{ base_path }}/common_static/declare_flaky.js"></script>
 {% endblock %}
 {% block content %}
     <h1>{{ pr.title }} <a rel="noopener" href="https://github.com/{{ repo }}/pull/{{ pr.number }}"><span class="gh-number">#{{ pr.number }}</span></a></h1>
@@ -24,6 +25,53 @@
       <input type="hidden" name="_csrf" value="{{ csrf_token }}"/>
       <button type="submit">Retry</button>
     </form>
+
+    {% set flaky_jobs = (jobs.get('failed', []) + jobs.get('error', [])) %}
+    {% if flaky_jobs %}
+    <details class="declare-flaky-section" id="declare-flaky-section">
+      <summary>Declare Flaky Tests</summary>
+
+      <input type="hidden" id="declare-flaky-csrf" value="{{ csrf_token }}"/>
+      <input type="hidden" id="declare-flaky-url"
+        value="{{ base_path }}/api/watched_branches/{{ wb.index }}/pr/{{ pr.number }}/declare_flaky"/>
+
+      <p>Check each failure to confirm you have reviewed it and it is unrelated to this PR:</p>
+      <ul class="flaky-job-list" id="flaky-job-list">
+        {% for job in flaky_jobs %}
+        <li>
+          <label>
+            <input type="checkbox"
+                   class="flaky-job-checkbox"
+                   data-entry="{{ job['job_id'] }}:{{ job['name'] }}"
+                   data-job-id="{{ job['job_id'] }}"
+                   data-job-name="{{ job['name'] }}"/>
+            <a href="{{ base_path }}/batches/{{ job['batch_id'] }}/jobs/{{ job['job_id'] }}">
+              {{ job['name'] }}
+            </a>
+            ({{ job['state'] }}{% if job.get('exit_code') is not none %}, exit {{ job['exit_code'] }}{% endif %})
+          </label>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <label id="declare-flaky-confirm-label">
+        <input type="checkbox" id="declare-flaky-confirm"/>
+        I confirm I have manually reviewed every failure above and none are caused by this PR's changes.
+      </label>
+
+      <div id="declare-flaky-error" class="message-error" style="display:none"></div>
+
+      <div class="flaky-actions">
+        <button type="button" id="declare-flaky-btn-retry">Declare Flaky &amp; Retry</button>
+        <div class="flaky-ignore-action">
+          <button type="button" id="declare-flaky-btn-ignore">Declare Flaky &amp; Mark as Success</button>
+          <p class="warning">
+            If main has been updated since this build ran, CI will re-run tests automatically before merging.
+          </p>
+        </div>
+      </div>
+    </details>
+    {% endif %}
 
     {% if logging_queries is not none %}
     <h2>Logging Queries</h2>

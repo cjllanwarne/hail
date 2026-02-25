@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+{% block title %}Flakiness Dashboard{% endblock %}
+{% block content %}
+<h1>Flakiness Dashboard</h1>
+<p>Most frequently declared flaky in the last {{ days }} days.</p>
+<table class="data-table">
+  <thead>
+    <tr><th>Job Name</th><th>Total</th><th>Retried</th><th>Ignored</th></tr>
+  </thead>
+  <tbody>
+    {% for row in leaderboard %}
+    <tr>
+      <td><a href="{{ base_path }}/flakiness/{{ row['job_name'] }}">{{ row['job_name'] }}</a></td>
+      <td class="numeric-cell">{{ row['total'] }}</td>
+      <td class="numeric-cell">{{ row['retries'] }}</td>
+      <td class="numeric-cell">{{ row['ignores'] }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">No flaky declarations recorded yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
