@@ -1,98 +1,99 @@
-{% from "utils.html" import danger_button, submit_button %}
 {% extends "layout.html" %}
 {% block title %}Billing Projects{% endblock %}
+{% block head %}
+<script defer src="{{ base_path }}/batch/static/js/billing_projects.js"></script>
+{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-light mb-4 ">Billing Projects</h1>
-<form action="{{ base_path }}/billing_projects/create" method="POST">
-  <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-  <input class='border rounded-sm p-1' type="text" name="billing_project" spellcheck="false" autocorrect="off">
-  {{ submit_button('Create') }}
-</form>
-<table class='table-fixed overflow-hidden rounded mt-4'>
-  <thead>
-    <th class='h-16 bg-slate-200 font-normal pl-2 text-left rounded-tl'>Billing Project</th>
-    <th class='h-16 bg-slate-200 font-normal text-left'>Limit</th>
-    <th class='h-16 bg-slate-200 font-normal text-left'>Users</th>
-    <th class='h-16 bg-slate-200 font-normal text-left rounded-tr'></th>
-  </thead>
-  <tbody>
-    {% for bp in billing_projects %}
-    <tr class='border border-collapse hover:bg-slate-100' x-data='{ editing: false }'>
-      <td class='p-2'>
-        {{ bp['billing_project'] }}
-      </td>
-      <td class='p-2'>
-        <form action="{{ base_path }}/billing_limits/{{ bp['billing_project'] }}/edit" method="POST">
-          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-          <input class='border rounded-sm w-28' type='number' required name='limit' class='border rounded-sm' disabled
-            :disabled='!editing' value="{{ bp['limit'] }}">
-          <div class='pt-2' x-cloak x-show='editing'>
-            {{ submit_button('Update') }}
-          </div>
-        </form>
-      </td>
-      <td class='p-2'>
-        <div class='flex-col'>
-          {% for user in bp['users'] %}
-          <div class='group flex justify-between items-top p-0.5 rounded-sm'
-            :class="editing ? '' : 'hover:bg-slate-200 hover:cursor-pointer'">
-            <div>{{ user }}</div>
-            <div class='invisible group-hover:visible' x-cloak x-show='editing'>
-              <form action="{{ base_path }}/billing_projects/{{ bp['billing_project'] }}/users/{{ user }}/remove"
-                method="POST">
-                <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-                <button class="hover:bg-slate-300 rounded-sm flex align-middle">
+<div id="bp-page-header" class="sticky top-0 z-20 bg-white pb-3">
+  <h1 class="text-2xl font-light mb-2">Billing Projects</h1>
+  <form id="bp-create-form">
+    <input class='border rounded-sm p-1' type="text" name="billing_project" spellcheck="false" autocorrect="off">
+    <button class='border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md'>Create</button>
+  </form>
+  <div id="change-log" class="hidden mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+    <span class="font-medium text-blue-800">Session changes:</span>
+    <ul id="change-log-list" class="list-disc list-inside text-blue-700 mt-1 space-y-0.5"></ul>
+  </div>
+</div>
+<div class="mt-4 overflow-x-auto">
+  <table class='table-fixed overflow-hidden rounded' id="bp-table">
+    <thead class="sticky z-10">
+      <tr>
+        <th class='h-16 bg-slate-200 font-normal pl-2 text-left rounded-tl'>Billing Project</th>
+        <th class='h-16 bg-slate-200 font-normal text-left'>Limit</th>
+        <th class='h-16 bg-slate-200 font-normal text-left'>Users</th>
+        <th class='h-16 bg-slate-200 font-normal text-left rounded-tr'></th>
+      </tr>
+    </thead>
+    <tbody id="open-projects-tbody">
+      {% for bp in billing_projects %}
+      <tr class='border border-collapse hover:bg-slate-100' data-bp="{{ bp['billing_project'] }}">
+        <td class='p-2'>{{ bp['billing_project'] }}</td>
+        <td class='p-2'>
+          <form data-bp-limit-form="{{ bp['billing_project'] }}">
+            <input class='border rounded-sm w-28' type='number' name='limit' disabled
+              data-original-value="{{ bp['limit'] if bp['limit'] is not none else '' }}"
+              value="{{ bp['limit'] if bp['limit'] is not none else '' }}">
+            <div data-show-editing class="hidden pt-2">
+              <button class='border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md'>Update</button>
+            </div>
+          </form>
+        </td>
+        <td class='p-2'>
+          <div class='flex-col bp-users-container'>
+            {% for user in bp['users'] %}
+            <div class='group flex justify-between items-top p-0.5 rounded-sm bp-user-row' data-user="{{ user }}">
+              <div>{{ user }}</div>
+              <div class='invisible group-hover:visible hidden' data-show-editing>
+                <button data-bp-remove data-bp="{{ bp['billing_project'] }}" data-user="{{ user }}"
+                  class="hover:bg-slate-300 rounded-sm flex align-middle">
                   <span class="material-symbols-outlined">close</span>
                 </button>
+              </div>
+            </div>
+            {% endfor %}
+            <div data-show-editing class="hidden">
+              <form data-bp-add-user="{{ bp['billing_project'] }}">
+                <input type="text" name="user" spellcheck="false" autocorrect="off" class='border rounded-sm w-28 mr-1'>
+                <button class='border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md'>Add</button>
               </form>
             </div>
           </div>
-          {% endfor %}
-          <div x-cloak x-show='editing'>
-            <form action="{{ base_path }}/billing_projects/{{ bp['billing_project'] }}/users/add" method="POST">
-              <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-              <input type="text" name="user" spellcheck="false" autocorrect="off" class='border rounded-sm w-28 mr-1'>
-              {{ submit_button('Add') }}
-            </form>
+        </td>
+        <td class='flex-col justify-center items-center'>
+          <div class='flex justify-center' data-show-view>
+            <button data-bp-edit class="hover:bg-slate-300 rounded p-1 flex align-middle">
+              <span class="material-symbols-outlined">edit</span>
+            </button>
           </div>
-        </div>
-      </td>
-      <td class='flex-col justify-center items-center'>
-        <div class='flex justify-center' x-show='!editing'>
-          <button x-on:click='editing=true' class="hover:bg-slate-300 rounded p-1 flex align-middle">
-            <span class="material-symbols-outlined">edit</span>
-          </button>
-        </div>
-        <div class='flex-col justify-around items-center space-y-1' x-cloak x-show='editing'>
-          <form action="{{ base_path }}/billing_projects/{{ bp['billing_project'] }}/close" method="POST">
-            <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-            {{ danger_button('Close') }}
+          <div class='hidden flex-col justify-around items-center space-y-1' data-show-editing>
+            <form data-bp-close="{{ bp['billing_project'] }}">
+              <button class='border border-gray-200 bg-gray-50 hover:bg-red-700 text-red-500 hover:text-white px-2 py-1 rounded-md'>Close</button>
+            </form>
+            <button data-bp-cancel class='border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md'>
+              Cancel
+            </button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tbody id="closed-projects-tbody">
+      {% for bp in closed_projects %}
+      <tr class='border border-collapse bg-gray-100' data-users="{{ bp['users'] | tojson }}">
+        <td class='p-2 font-thin italic'>{{ bp['billing_project'] }}</td>
+        <td class='p-2 font-thin' data-limit="{{ bp['limit'] if bp['limit'] is not none else '' }}">
+          {{ bp['limit'] if bp['limit'] is not none else '' }}
+        </td>
+        <td></td>
+        <td class='px-4'>
+          <form data-bp-reopen="{{ bp['billing_project'] }}">
+            <button class='border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md'>Reopen</button>
           </form>
-          <button x-on:click='editing=false'
-            class='border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md'>
-            Cancel
-          </button>
-        </div>
-      </td>
-    </tr>
-    {% endfor %}
-    {% for bp in closed_projects %}
-    <tr class='border border-collapse bg-gray-100'>
-      <td class='p-2 font-thin italic'>
-        {{ bp['billing_project'] }}
-      </td>
-      <td class='p-2 font-thin'>
-        {{ bp['limit'] }}
-      </td>
-      <td></td>
-      <td class='px-4'>
-        <form action="{{ base_path }}/billing_projects/{{ bp['billing_project'] }}/reopen" method="POST">
-          <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-          {{ submit_button('Reopen') }}
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}
