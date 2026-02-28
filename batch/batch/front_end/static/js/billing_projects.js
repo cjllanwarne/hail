@@ -30,14 +30,6 @@ function updateStickyTheadTop() {
 
 // --- Helpers ---
 
-function escHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
-
 function showError(anchor, msg) {
     let err = anchor.querySelector('.bp-error');
     if (!err) {
@@ -79,91 +71,44 @@ function setEditing(row, editing) {
     if (limitInput) limitInput.disabled = !editing;
 }
 
-// --- DOM building ---
+// --- DOM building from templates ---
 
 function makeUserRowEl(bp, user) {
-    const div = document.createElement('div');
-    div.className = 'group flex justify-between items-top p-0.5 rounded-sm bp-user-row';
+    const tr = document.getElementById('user-row-tpl').content.cloneNode(true);
+    const div = tr.querySelector('.bp-user-row');
     div.dataset.user = user;
-    div.innerHTML =
-        `<div>${escHtml(user)}</div>` +
-        `<div class="invisible group-hover:visible" data-show-editing>` +
-            `<button data-bp-remove data-bp="${escHtml(bp)}" data-user="${escHtml(user)}"` +
-            ` class="hover:bg-slate-300 rounded-sm flex align-middle">` +
-            `<span class="material-symbols-outlined">close</span></button>` +
-        `</div>`;
+    div.querySelector('.bp-username').textContent = user;
+    const btn = div.querySelector('[data-bp-remove]');
+    btn.dataset.bp = bp;
+    btn.dataset.user = user;
     return div;
 }
 
 function makeOpenRow(bp, limit = '', users = []) {
-    const tr = document.createElement('tr');
-    tr.className = 'border border-collapse hover:bg-slate-100';
+    const tr = document.getElementById('open-row-tpl').content.cloneNode(true).querySelector('tr');
     tr.dataset.bp = bp;
-
-    const userRowsHtml = users.map(u =>
-        `<div class="group flex justify-between items-top p-0.5 rounded-sm bp-user-row" data-user="${escHtml(u)}">` +
-            `<div>${escHtml(u)}</div>` +
-            `<div class="invisible group-hover:visible hidden" data-show-editing>` +
-                `<button data-bp-remove data-bp="${escHtml(bp)}" data-user="${escHtml(u)}"` +
-                ` class="hover:bg-slate-300 rounded-sm flex align-middle">` +
-                `<span class="material-symbols-outlined">close</span></button>` +
-            `</div>` +
-        `</div>`
-    ).join('');
-
-    tr.innerHTML =
-        `<td class="p-2">${escHtml(bp)}</td>` +
-        `<td class="p-2">` +
-            `<form data-bp-limit-form="${escHtml(bp)}">` +
-                `<input class="border rounded-sm w-28" type="number" name="limit"` +
-                ` disabled data-original-value="${escHtml(String(limit))}" value="${escHtml(String(limit))}">` +
-                `<div data-show-editing class="hidden pt-2">` +
-                    `<button class="border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md">Update</button>` +
-                `</div>` +
-            `</form>` +
-        `</td>` +
-        `<td class="p-2">` +
-            `<div class="flex-col bp-users-container">` +
-                userRowsHtml +
-                `<div data-show-editing class="hidden">` +
-                    `<form data-bp-add-user="${escHtml(bp)}">` +
-                        `<input type="text" name="user" spellcheck="false" autocorrect="off" class="border rounded-sm w-28 mr-1">` +
-                        `<button class="border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md">Add</button>` +
-                    `</form>` +
-                `</div>` +
-            `</div>` +
-        `</td>` +
-        `<td class="flex-col justify-center items-center">` +
-            `<div class="flex justify-center" data-show-view>` +
-                `<button data-bp-edit class="hover:bg-slate-300 rounded p-1 flex align-middle">` +
-                    `<span class="material-symbols-outlined">edit</span>` +
-                `</button>` +
-            `</div>` +
-            `<div class="hidden flex-col justify-around items-center space-y-1" data-show-editing>` +
-                `<form data-bp-close="${escHtml(bp)}">` +
-                    `<button class="border border-gray-200 bg-gray-50 hover:bg-red-700 text-red-500 hover:text-white px-2 py-1 rounded-md">Close</button>` +
-                `</form>` +
-                `<button data-bp-cancel class="border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md">Cancel</button>` +
-            `</div>` +
-        `</td>`;
-
+    tr.querySelector('.bp-name').textContent = bp;
+    const limitInput = tr.querySelector('input[name="limit"]');
+    limitInput.value = limit;
+    limitInput.dataset.originalValue = limit;
+    tr.querySelector('[data-bp-limit-form]').dataset.bpLimitForm = bp;
+    tr.querySelector('[data-bp-add-user]').dataset.bpAddUser = bp;
+    tr.querySelector('[data-bp-close]').dataset.bpClose = bp;
+    const usersContainer = tr.querySelector('.bp-users-container');
+    const addDiv = usersContainer.querySelector('[data-show-editing]');
+    users.forEach(u => usersContainer.insertBefore(makeUserRowEl(bp, u), addDiv));
     attachOpenRow(tr);
     return tr;
 }
 
 function makeClosedRow(bp, limit = '', users = []) {
-    const tr = document.createElement('tr');
-    tr.className = 'border border-collapse bg-gray-100';
+    const tr = document.getElementById('closed-row-tpl').content.cloneNode(true).querySelector('tr');
     tr.dataset.users = JSON.stringify(users);
-    tr.innerHTML =
-        `<td class="p-2 font-thin italic">${escHtml(bp)}</td>` +
-        `<td class="p-2 font-thin" data-limit="${escHtml(String(limit))}">${escHtml(String(limit))}</td>` +
-        `<td></td>` +
-        `<td class="px-4">` +
-            `<form data-bp-reopen="${escHtml(bp)}">` +
-                `<button class="border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md">Reopen</button>` +
-            `</form>` +
-        `</td>`;
+    tr.querySelector('.bp-name').textContent = bp;
+    const limitTd = tr.querySelector('.bp-limit');
+    limitTd.textContent = limit;
+    limitTd.dataset.limit = limit;
+    tr.querySelector('[data-bp-reopen]').dataset.bpReopen = bp;
     return tr;
 }
 
@@ -266,7 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const bp = form.dataset.bpReopen;
         const row = form.closest('tr');
-        const limit = row.querySelector('[data-limit]')?.dataset.limit || '';
+        const limit = row.querySelector('.bp-limit')?.dataset.limit || '';
         const users = JSON.parse(row.dataset.users || '[]');
         try {
             await apiPost(`/api/v1alpha/billing_projects/${encodeURIComponent(bp)}/reopen`);
