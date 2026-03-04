@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 
-function BillingProjects({ basePath }) {
+function BillingProjects({ basePath, csrfToken }) {
   const [projects, setProjects] = useState([]);
   const [error, setError] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
@@ -23,9 +23,12 @@ function BillingProjects({ basePath }) {
   }, []);
 
   async function apiPost(url, body) {
-    const opts = { method: 'POST' };
+    const opts = {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrfToken },
+    };
     if (body !== undefined) {
-      opts.headers = { 'Content-Type': 'application/json' };
+      opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
     const resp = await fetch(basePath + url, opts);
@@ -267,5 +270,6 @@ function ClosedProjectRow({ bp, onReopen }) {
 const mountEl = document.getElementById('billing-projects-root');
 if (mountEl) {
   const basePath = mountEl.dataset.basePath || '';
-  createRoot(mountEl).render(<BillingProjects basePath={basePath} />);
+  const csrfToken = document.head.querySelector('meta[name="csrf"]')?.getAttribute('value') || '';
+  createRoot(mountEl).render(<BillingProjects basePath={basePath} csrfToken={csrfToken} />);
 }
