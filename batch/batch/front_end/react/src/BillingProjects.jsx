@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 
 function BillingProjects({ basePath, csrfToken }) {
   const [projects, setProjects] = useState([]);
-  const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [message, setMessage] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
 
   async function fetchProjects() {
@@ -12,9 +13,9 @@ function BillingProjects({ basePath, csrfToken }) {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       setProjects(data);
-      setError(null);
+      setLoadError(null);
     } catch (e) {
-      setError(e.message);
+      setLoadError(e.message);
     }
   }
 
@@ -43,27 +44,30 @@ function BillingProjects({ basePath, csrfToken }) {
     try {
       await apiPost(`/api/v1alpha/billing_limits/${bp}/edit`, { limit: Number(limit) });
       setEditingRow(null);
+      setMessage({ text: `Modified limit for billing project ${bp}.`, type: 'info' });
       await fetchProjects();
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      setMessage({ text: e.message, type: 'error' });
     }
   }
 
   async function handleRemoveUser(bp, user) {
     try {
       await apiPost(`/api/v1alpha/billing_projects/${bp}/users/${user}/remove`);
+      setMessage({ text: `Removed user ${user} from billing project ${bp}.`, type: 'info' });
       await fetchProjects();
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      setMessage({ text: e.message, type: 'error' });
     }
   }
 
   async function handleAddUser(bp, user) {
     try {
       await apiPost(`/api/v1alpha/billing_projects/${bp}/users/${encodeURIComponent(user)}/add`);
+      setMessage({ text: `Added user ${user} to billing project ${bp}.`, type: 'info' });
       await fetchProjects();
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      setMessage({ text: e.message, type: 'error' });
     }
   }
 
@@ -71,39 +75,54 @@ function BillingProjects({ basePath, csrfToken }) {
     try {
       await apiPost(`/api/v1alpha/billing_projects/${bp}/close`);
       setEditingRow(null);
+      setMessage({ text: `Closed billing project ${bp}.`, type: 'info' });
       await fetchProjects();
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      setMessage({ text: e.message, type: 'error' });
     }
   }
 
   async function handleReopen(bp) {
     try {
       await apiPost(`/api/v1alpha/billing_projects/${bp}/reopen`);
+      setMessage({ text: `Reopened billing project ${bp}.`, type: 'info' });
       await fetchProjects();
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      setMessage({ text: e.message, type: 'error' });
     }
   }
 
   async function handleCreate(name) {
     try {
       await apiPost(`/api/v1alpha/billing_projects/${encodeURIComponent(name)}/create`);
+      setMessage({ text: `Created billing project ${name}.`, type: 'info' });
       await fetchProjects();
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      setMessage({ text: e.message, type: 'error' });
     }
   }
 
   const openProjects = projects.filter((p) => p.status === 'open');
   const closedProjects = projects.filter((p) => p.status === 'closed');
 
-  if (error) {
-    return <div className="text-red-600">Error loading billing projects: {error}</div>;
+  if (loadError) {
+    return <div className="text-red-600">Error loading billing projects: {loadError}</div>;
   }
+
+  const messageClasses = message?.type === 'error'
+    ? 'text-red-700 border border-red-400 bg-red-50 px-3 py-2 rounded mb-4'
+    : 'text-green-700 border border-green-400 bg-green-50 px-3 py-2 rounded mb-4';
 
   return (
     <>
+      {message && (
+        <div className={`${messageClasses} flex justify-between items-center`}>
+          <span>{message.text}</span>
+          <button type="button" onClick={() => setMessage(null)} className="ml-4 hover:opacity-70">
+            <span className="material-symbols-outlined">check</span>
+          </button>
+        </div>
+      )}
       <CreateForm onCreate={handleCreate} />
       <table className="table-fixed overflow-hidden rounded mt-4">
       <thead>
