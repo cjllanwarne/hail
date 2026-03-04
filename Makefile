@@ -168,6 +168,11 @@ docs.tar.gz: hail/build/www
 
 website-image: docs.tar.gz
 
+batch/batch/front_end/static/compiled-js/billing_projects.js: $(shell git ls-files batch/batch/front_end/react)
+	cd batch/batch/front_end/react && npm ci && npm run build
+
+batch-image: batch/batch/front_end/static/compiled-js/billing_projects.js
+
 .SECONDEXPANSION:
 $(SERVICES_IMAGES): %-image: $(SERVICES_IMAGE_DEPS) $$(shell git ls-files $$* ':!:**/deployment.yaml')
 	./docker-build.sh . $*/Dockerfile $(IMAGE_NAME) --build-arg BASE_IMAGE=$(shell cat hail-ubuntu-image)
