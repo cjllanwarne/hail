@@ -86,6 +86,15 @@ function BillingProjects({ basePath, csrfToken }) {
     }
   }
 
+  async function handleCreate(name) {
+    try {
+      await apiPost(`/api/v1alpha/billing_projects/${encodeURIComponent(name)}/create`);
+      await fetchProjects();
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+    }
+  }
+
   const openProjects = projects.filter((p) => p.status === 'open');
   const closedProjects = projects.filter((p) => p.status === 'closed');
 
@@ -94,7 +103,9 @@ function BillingProjects({ basePath, csrfToken }) {
   }
 
   return (
-    <table className="table-fixed overflow-hidden rounded mt-4">
+    <>
+      <CreateForm onCreate={handleCreate} />
+      <table className="table-fixed overflow-hidden rounded mt-4">
       <thead>
         <tr>
           <th className="h-16 bg-slate-200 font-normal pl-2 text-left rounded-tl">Billing Project</th>
@@ -122,6 +133,35 @@ function BillingProjects({ basePath, csrfToken }) {
         ))}
       </tbody>
     </table>
+    </>
+  );
+}
+
+function CreateForm({ onCreate }) {
+  const [name, setName] = useState('');
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (name.trim()) {
+      onCreate(name.trim());
+      setName('');
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        className="border rounded-sm p-1"
+        type="text"
+        spellCheck="false"
+        autoCorrect="off"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <button type="submit" className="border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md">
+        Create
+      </button>
+    </form>
   );
 }
 
