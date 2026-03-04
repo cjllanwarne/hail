@@ -115,7 +115,6 @@ from ..spec_writer import SpecWriter
 from ..utils import (
     add_metadata_to_request,
     query_billing_projects_with_cost,
-    query_billing_projects_without_cost,
     regions_to_bits_rep,
     rewrite_dockerhub_image,
     unavailable_if_frozen,
@@ -3045,13 +3044,7 @@ async def ui_get_billing(request, userdata):
 @auth.authenticated_developers_only()
 @catch_ui_error_in_dev
 async def ui_get_billing_projects(request, userdata):
-    db: Database = request.app['db']
-    billing_projects = await query_billing_projects_without_cost(db)
-    page_context = {
-        'billing_projects': [{**p, 'size': len(p['users'])} for p in billing_projects if p['status'] == 'open'],
-        'closed_projects': [p for p in billing_projects if p['status'] == 'closed'],
-    }
-    return await render_template('batch', request, userdata, 'billing_projects.html', page_context)
+    return await render_template('batch', request, userdata, 'billing_projects.html', {})
 
 
 @routes.get('/api/v1alpha/billing_projects')
@@ -3656,6 +3649,7 @@ def run():
 
     setup_aiohttp_jinja2(app, 'batch.front_end', jinja2.FileSystemLoader(f'{FRONT_END_ROOT}/static/'))
     setup_common_static_routes(routes)
+    routes.static('/batch/static/compiled-js', f'{FRONT_END_ROOT}/static/compiled-js')
     app.add_routes(routes)
     app.router.add_get("/metrics", server_stats)
 

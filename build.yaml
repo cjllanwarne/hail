@@ -682,6 +682,35 @@ steps:
       - hail_ubuntu_image
       - merge_code
   - kind: buildImage2
+    name: frontend_build_image
+    dockerFile: /io/repo/batch/Dockerfile.frontend-build
+    contextPath: /io/repo
+    publishAs: frontend-build
+    inputs:
+      - from: /repo/batch/Dockerfile.frontend-build
+        to: /io/repo/batch/Dockerfile.frontend-build
+    dependsOn:
+      - merge_code
+  - kind: runImage
+    name: build_billing_projects_js
+    image:
+      valueFrom: frontend_build_image.image
+    script: |
+      set -ex
+      cd /io/repo/batch/batch/front_end/react
+      mkdir -p /io/repo/batch/batch/front_end/static/compiled-js
+      npm ci
+      npm run build
+    inputs:
+      - from: /repo/batch/batch/front_end/react
+        to: /io/repo/batch/batch/front_end/react
+    outputs:
+      - from: /io/repo/batch/batch/front_end/static/compiled-js/billing_projects.js
+        to: /compiled-js/billing_projects.js
+    dependsOn:
+      - frontend_build_image
+      - merge_code
+  - kind: buildImage2
     name: batch_image
     dockerFile: /io/repo/batch/Dockerfile
     contextPath: /io/repo
@@ -703,9 +732,12 @@ steps:
         to: /io/repo/gear
       - from: /repo/web_common
         to: /io/repo/web_common
+      - from: /compiled-js/billing_projects.js
+        to: /io/repo/batch/batch/front_end/static/compiled-js/billing_projects.js
     dependsOn:
       - hail_ubuntu_image
       - merge_code
+      - build_billing_projects_js
   - kind: buildImage2
     name: hailgenetics_hailtop_image
     dockerFile: /io/repo/docker/hailgenetics/hailtop/Dockerfile
