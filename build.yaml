@@ -681,20 +681,9 @@ steps:
     dependsOn:
       - hail_ubuntu_image
       - merge_code
-  - kind: buildImage2
-    name: frontend_build_image
-    dockerFile: /io/repo/batch/Dockerfile.frontend-build
-    contextPath: /io/repo
-    publishAs: frontend-build
-    inputs:
-      - from: /repo/batch/Dockerfile.frontend-build
-        to: /io/repo/batch/Dockerfile.frontend-build
-    dependsOn:
-      - merge_code
   - kind: runImage
     name: build_billing_projects_js
-    image:
-      valueFrom: frontend_build_image.image
+    image: node:20-slim
     script: |
       set -ex
       cd /io/repo/batch/batch/front_end/react
@@ -708,7 +697,6 @@ steps:
       - from: /io/repo/batch/batch/front_end/static/compiled-js/billing_projects.js
         to: /compiled-js/billing_projects.js
     dependsOn:
-      - frontend_build_image
       - merge_code
   - kind: buildImage2
     name: batch_image
