@@ -694,8 +694,8 @@ steps:
       - from: /repo/batch/batch/front_end/react
         to: /io/repo/batch/batch/front_end/react
     outputs:
-      - from: /io/repo/batch/batch/front_end/static/compiled-js/billing_projects.js
-        to: /compiled-js/billing_projects.js
+      - from: /io/repo/batch/batch/front_end/static/compiled-js
+        to: /compiled-js
     dependsOn:
       - merge_code
   - kind: buildImage2
@@ -720,8 +720,8 @@ steps:
         to: /io/repo/gear
       - from: /repo/web_common
         to: /io/repo/web_common
-      - from: /compiled-js/billing_projects.js
-        to: /io/repo/batch/batch/front_end/static/compiled-js/billing_projects.js
+      - from: /compiled-js
+        to: /io/repo/batch/batch/front_end/static/compiled-js
     dependsOn:
       - hail_ubuntu_image
       - merge_code
