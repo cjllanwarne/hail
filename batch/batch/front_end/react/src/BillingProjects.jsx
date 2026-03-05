@@ -154,8 +154,8 @@ function BillingProjects({ basePath, csrfToken }) {
       {message && (
         <div className={`${messageClasses} flex justify-between items-center`}>
           <span>{message.text}</span>
-          <button type="button" onClick={() => setMessage(null)} className="ml-4 hover:opacity-70">
-            <span className="material-symbols-outlined">check</span>
+          <button type="button" onClick={() => setMessage(null)} className="ml-4 text-sm hover:opacity-70 underline">
+            Dismiss
           </button>
         </div>
       )}
