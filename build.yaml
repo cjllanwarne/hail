@@ -683,7 +683,7 @@ steps:
       - merge_code
   - kind: runImage
     name: build_billing_projects_js
-    image: "{% if global.dockerhub_prefix %}{{ global.dockerhub_prefix }}/library/node:20-slim{% else %}node:20-slim{% endif %}"
+    image: node:20-slim
     script: |
       set -ex
       cd /io/repo/batch/batch/front_end/react
