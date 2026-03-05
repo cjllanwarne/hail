@@ -3265,6 +3265,58 @@ VALUES (%s, %s);
     await insert()
 
 
+async def _create_billing_project_with_config(
+    request: web.Request, db: Database, billing_project: str, limit, users: list
+):
+    if users:
+        session_id = await get_session_id(request)
+        assert session_id is not None
+        for user in users:
+            try:
+                url = deploy_config.url('auth', f'/api/v1alpha/users/{user}')
+                await impersonate_user(session_id, request.app[CommonAiohttpAppKeys.CLIENT_SESSION], url)
+            except aiohttp.ClientResponseError as e:
+                if e.status == 404:
+                    raise NonExistentUserError(user) from e
+                raise
+
+    parsed_limit = _parse_billing_limit(limit)
+
+    @transaction(db)
+    async def insert(tx):
+        row = await tx.execute_and_fetchone(
+            """
+SELECT name_cs, `status`
+FROM billing_projects
+WHERE name = %s
+FOR UPDATE;
+""",
+            (billing_project),
+        )
+        if row is not None:
+            billing_project_cs = row['name_cs']
+            raise BatchOperationAlreadyCompletedError(f'Billing project {billing_project_cs} already exists.', 'info')
+
+        await tx.execute_insertone(
+            """
+INSERT INTO billing_projects(name, name_cs, `limit`)
+VALUES (%s, %s, %s);
+""",
+            (billing_project, billing_project, parsed_limit),
+        )
+
+        for user in users:
+            await tx.execute_insertone(
+                """
+INSERT INTO billing_project_users(billing_project, user, user_cs)
+VALUES (%s, %s, %s);
+""",
+                (billing_project, user, user),
+            )
+
+    await insert()
+
+
 @routes.post('/billing_projects/create')
 @web_security_headers
 @auth.authenticated_developers_only(redirect=False)
@@ -3287,7 +3339,13 @@ async def post_create_billing_projects(request: web.Request, _) -> NoReturn:
 async def api_get_create_billing_projects(request: web.Request) -> web.Response:
     db: Database = request.app['db']
     billing_project = request.match_info['billing_project']
-    await _handle_api_error(_create_billing_project, db, billing_project)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    limit = data.get('limit')
+    users = data.get('users', [])
+    await _handle_api_error(_create_billing_project_with_config, request, db, billing_project, limit, users)
     return json_response(billing_project)
 
 
