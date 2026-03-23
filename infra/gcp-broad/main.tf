@@ -1104,6 +1104,62 @@ resource "google_dns_managed_zone" "dns_zone" {
   timeouts {}
 }
 
+resource "google_dns_managed_zone" "googleapis" {
+  name       = "googleapis"
+  dns_name   = "googleapis.com."
+  visibility = "private"
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.default.self_link
+    }
+  }
+}
+
+resource "google_dns_record_set" "private_googleapis" {
+  name         = "private.googleapis.com."
+  managed_zone = google_dns_managed_zone.googleapis.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = ["199.36.153.4", "199.36.153.5", "199.36.153.6", "199.36.153.7"]
+}
+
+resource "google_dns_record_set" "googleapis_cname" {
+  name         = "*.googleapis.com."
+  managed_zone = google_dns_managed_zone.googleapis.name
+  type         = "CNAME"
+  ttl          = 300
+  rrdatas      = ["private.googleapis.com."]
+}
+
+resource "google_dns_managed_zone" "pkg_dev" {
+  name       = "pkg-dev"
+  dns_name   = "pkg.dev."
+  visibility = "private"
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.default.self_link
+    }
+  }
+}
+
+resource "google_dns_record_set" "pkg_dev_a" {
+  name         = "pkg.dev."
+  managed_zone = google_dns_managed_zone.pkg_dev.name
+  type         = "A"
+  ttl          = 300
+  rrdatas      = ["199.36.153.4", "199.36.153.5", "199.36.153.6", "199.36.153.7"]
+}
+
+resource "google_dns_record_set" "pkg_dev_cname" {
+  name         = "*.pkg.dev."
+  managed_zone = google_dns_managed_zone.pkg_dev.name
+  type         = "CNAME"
+  ttl          = 300
+  rrdatas      = ["pkg.dev."]
+}
+
 resource "google_dns_record_set" "internal_gateway" {
   name = "*.${google_dns_managed_zone.dns_zone.dns_name}"
   managed_zone = google_dns_managed_zone.dns_zone.name
