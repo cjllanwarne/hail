@@ -220,6 +220,8 @@ class NetworkNamespace:
         self.hostname = 'hostname-' + uuid.uuid4().hex[:10]
         self.veth_host = self.network_ns_name + '-host'
         self.veth_job = self.network_ns_name + '-job'
+        self.cloud_internal_dl_chain = self.network_ns_name + '-int-dl'
+        self.cloud_internal_ul_chain = self.network_ns_name + '-int-ul'
 
         if private:
             self.host_ip = f'172.20.{subnet_index}.10'
@@ -235,6 +237,7 @@ class NetworkNamespace:
         await self.create_netns()
         await self.enable_iptables_forwarding()
         await self.mark_packets()
+        await self.create_cloud_internal_chains()
 
         os.makedirs(f'/etc/netns/{self.network_ns_name}')
         with open(f'/etc/netns/{self.network_ns_name}/hosts', 'w', encoding='utf-8') as hosts:
@@ -280,6 +283,20 @@ iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} --append FORWARD --out-interface {self.
         await check_shell(f"""
 iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -j MARK --set-mark 10 && \
 iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -j MARK --set-mark 11
+""")
+
+    async def create_cloud_internal_chains(self):
+        await check_shell(f"""
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -N {self.cloud_internal_dl_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -N {self.cloud_internal_ul_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A {self.cloud_internal_dl_chain} -j MARK --set-mark 12 && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A {self.cloud_internal_ul_chain} -j MARK --set-mark 13 && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -s 10.0.0.0/8 -j {self.cloud_internal_dl_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -s 199.36.153.4/30 -j {self.cloud_internal_dl_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -s 199.36.153.8/30 -j {self.cloud_internal_dl_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -d 10.0.0.0/8 -j {self.cloud_internal_ul_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -d 199.36.153.4/30 -j {self.cloud_internal_ul_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -d 199.36.153.8/30 -j {self.cloud_internal_ul_chain}
 """)
 
     async def expose_port(self, port, host_port):
@@ -1043,6 +1060,8 @@ class Container:
             self.container_overlay_path,
             self.io_mount_path,
             self.netns.veth_host,
+            self.netns.cloud_internal_dl_chain,
+            self.netns.cloud_internal_ul_chain,
             resource_usage_path,
             self.fs,
         )

@@ -2625,6 +2625,8 @@ def plot_resource_usage(
 
         network_download_df = get_df(df, 'network_bandwidth_download_in_bytes_per_second')
         network_upload_df = get_df(df, 'network_bandwidth_upload_in_bytes_per_second')
+        network_cloud_internal_download_df = get_df(df, 'network_bandwidth_cloud_internal_download_in_bytes_per_second')
+        network_cloud_internal_upload_df = get_df(df, 'network_bandwidth_cloud_internal_upload_in_bytes_per_second')
         non_io_storage_df = get_df(df, 'non_io_storage_in_bytes')
         io_storage_df = get_df(df, 'io_storage_in_bytes')
 
@@ -2633,19 +2635,27 @@ def plot_resource_usage(
             max_memory_value = max(max_memory_value, mem_df.max())
             max_download_network_bandwidth_value = max(max_download_network_bandwidth_value, network_download_df.max())
             max_upload_network_bandwidth_value = max(max_upload_network_bandwidth_value, network_upload_df.max())
+            if not bool(network_cloud_internal_download_df.isna().all()):
+                max_download_network_bandwidth_value = max(
+                    max_download_network_bandwidth_value, network_cloud_internal_download_df.max()
+                )
+            if not bool(network_cloud_internal_upload_df.isna().all()):
+                max_upload_network_bandwidth_value = max(
+                    max_upload_network_bandwidth_value, network_cloud_internal_upload_df.max()
+                )
             max_io_storage_value = max(max_io_storage_value, io_storage_df.max())
             max_non_io_storage_value = max(max_non_io_storage_value, non_io_storage_df.max())
 
-        def add_trace(time, measurement, row, col, container_name, show_legend):
+        def add_trace(time, measurement, row, col, container_name, show_legend, dash='solid', name_suffix=''):
             fig.add_trace(
                 go.Scatter(
                     x=time,
                     y=measurement,
                     showlegend=show_legend,
-                    legendgroup=container_name,
-                    name=container_name,
+                    legendgroup=container_name + name_suffix,
+                    name=container_name + name_suffix,
                     mode='markers+lines',
-                    line={'color': colors[container_name]},
+                    line={'color': colors[container_name], 'dash': dash},
                 ),
                 row=row,
                 col=col,
@@ -2655,6 +2665,26 @@ def plot_resource_usage(
         add_trace(time_df, mem_df, 1, 2, container_name, False)
         add_trace(time_df, network_download_df, 2, 1, container_name, False)
         add_trace(time_df, network_upload_df, 2, 2, container_name, False)
+        add_trace(
+            time_df,
+            network_cloud_internal_download_df,
+            2,
+            1,
+            container_name,
+            False,
+            dash='dash',
+            name_suffix=' (cloud internal)',
+        )
+        add_trace(
+            time_df,
+            network_cloud_internal_upload_df,
+            2,
+            2,
+            container_name,
+            False,
+            dash='dash',
+            name_suffix=' (cloud internal)',
+        )
         add_trace(time_df, non_io_storage_df, 3, 1, container_name, False)
         if io_storage_limit_bytes != 0:
             add_trace(time_df, io_storage_df, 3, 2, container_name, False)

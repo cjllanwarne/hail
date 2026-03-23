@@ -20,7 +20,7 @@ iptables_lock = asyncio.Lock()
 
 
 class ResourceUsageMonitor:
-    VERSION = 2
+    VERSION = 3
     missing_value = None
 
     @staticmethod
@@ -53,13 +53,17 @@ class ResourceUsageMonitor:
             ('cpu_usage', '>f8'),
         ]
 
-        if version > 1:
-            assert version == ResourceUsageMonitor.VERSION, version
+        if version >= 2:
             dtype += [
                 ('non_io_storage_in_bytes', '>i8'),
                 ('io_storage_in_bytes', '>i8'),
                 ('network_bandwidth_upload_in_bytes_per_second', '>f8'),
                 ('network_bandwidth_download_in_bytes_per_second', '>f8'),
+            ]
+        if version >= 3:
+            dtype += [
+                ('network_bandwidth_cloud_internal_upload_in_bytes_per_second', '>f8'),
+                ('network_bandwidth_cloud_internal_download_in_bytes_per_second', '>f8'),
             ]
         np_array = np.frombuffer(data, offset=8, dtype=dtype)
 
@@ -71,6 +75,8 @@ class ResourceUsageMonitor:
         container_overlay: str,
         io_volume_mount: Optional[str],
         veth_host: str,
+        cloud_internal_dl_chain: str,
+        cloud_internal_ul_chain: str,
         output_file_path: str,
         fs: AsyncFS,
     ):
@@ -80,6 +86,8 @@ class ResourceUsageMonitor:
         self.container_overlay = container_overlay
         self.io_volume_mount = io_volume_mount
         self.veth_host = veth_host
+        self.cloud_internal_dl_chain = cloud_internal_dl_chain
+        self.cloud_internal_ul_chain = cloud_internal_ul_chain
         self.output_file_path = output_file_path
         self.fs = fs
 
@@ -91,6 +99,8 @@ class ResourceUsageMonitor:
         self.last_download_bytes: Optional[int] = None
         self.last_upload_bytes: Optional[int] = None
         self.last_time_msecs: Optional[int] = None
+        self.last_cloud_internal_download_bytes: Optional[int] = None
+        self.last_cloud_internal_upload_bytes: Optional[int] = None
 
         self.out: Optional[io.BufferedWriter] = None
 
@@ -163,16 +173,30 @@ class ResourceUsageMonitor:
             return shutil.disk_usage(self.io_volume_mount).used
         return 0
 
-    async def network_bandwidth(self) -> Tuple[Optional[float], Optional[float]]:
+    async def network_bandwidth(self) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
         async with iptables_lock:
             now_time_msecs = time_msecs()
 
             iptables_output, stderr = await check_shell_output(f"""
-iptables -t mangle -L -v -n -x -w | grep "{self.veth_host}" | awk '{{ if ($6 == "{self.veth_host}" || $7 == "{self.veth_host}") print $2, $6, $7 }}'
+iptables -t mangle -L -v -n -x -w | grep "{self.veth_host}" | awk '{{ if ($6 == "{self.veth_host}" && $8 == "0.0.0.0/0") print "ul", $2; if ($7 == "{self.veth_host}" && $9 == "0.0.0.0/0") print "dl", $2 }}'
 """)
-        if stderr:
-            log.exception(stderr)
-            return (None, None)
+            if stderr:
+                log.exception(stderr)
+                return (None, None, None, None)
+
+            ci_dl_output, ci_dl_stderr = await check_shell_output(
+                f'iptables -t mangle -L {self.cloud_internal_dl_chain} -v -n -x -w | awk \'NR==3 {{print $2}}\''
+            )
+            if ci_dl_stderr:
+                log.exception(ci_dl_stderr)
+                return (None, None, None, None)
+
+            ci_ul_output, ci_ul_stderr = await check_shell_output(
+                f'iptables -t mangle -L {self.cloud_internal_ul_chain} -v -n -x -w | awk \'NR==3 {{print $2}}\''
+            )
+            if ci_ul_stderr:
+                log.exception(ci_ul_stderr)
+                return (None, None, None, None)
 
         output = iptables_output.decode('utf-8').rstrip().splitlines()
         assert len(output) == 2, str((output, self.veth_host))
@@ -181,33 +205,61 @@ iptables -t mangle -L -v -n -x -w | grep "{self.veth_host}" | awk '{{ if ($6 == 
         now_download_bytes = None
         for line in output:
             fields = line.split()
-            bytes_transmitted = int(fields[0])
-
-            if fields[1] == self.veth_host and fields[2] != self.veth_host:
+            direction = fields[0]
+            bytes_transmitted = int(fields[1])
+            if direction == 'ul':
                 now_upload_bytes = bytes_transmitted
             else:
-                assert fields[1] != self.veth_host and fields[2] == self.veth_host, line
+                assert direction == 'dl', line
                 now_download_bytes = bytes_transmitted
 
         assert now_upload_bytes is not None and now_download_bytes is not None, output
 
-        if self.last_upload_bytes is None or self.last_download_bytes is None or self.last_time_msecs is None:
+        now_cloud_internal_download_bytes = int(ci_dl_output.decode('utf-8').strip())
+        now_cloud_internal_upload_bytes = int(ci_ul_output.decode('utf-8').strip())
+
+        if (
+            self.last_upload_bytes is None
+            or self.last_download_bytes is None
+            or self.last_cloud_internal_download_bytes is None
+            or self.last_cloud_internal_upload_bytes is None
+            or self.last_time_msecs is None
+        ):
             self.last_time_msecs = time_msecs()
             self.last_upload_bytes = now_upload_bytes
             self.last_download_bytes = now_download_bytes
-            return (None, None)
+            self.last_cloud_internal_download_bytes = now_cloud_internal_download_bytes
+            self.last_cloud_internal_upload_bytes = now_cloud_internal_upload_bytes
+            return (None, None, None, None)
 
-        upload_bandwidth = (now_upload_bytes - self.last_upload_bytes) / (now_time_msecs - self.last_time_msecs)
-        download_bandwidth = (now_download_bytes - self.last_download_bytes) / (now_time_msecs - self.last_time_msecs)
+        elapsed_msecs = now_time_msecs - self.last_time_msecs
+        upload_bandwidth = (now_upload_bytes - self.last_upload_bytes) / elapsed_msecs
+        download_bandwidth = (now_download_bytes - self.last_download_bytes) / elapsed_msecs
+        cloud_internal_download_bandwidth = (
+            now_cloud_internal_download_bytes - self.last_cloud_internal_download_bytes
+        ) / elapsed_msecs
+        cloud_internal_upload_bandwidth = (
+            now_cloud_internal_upload_bytes - self.last_cloud_internal_upload_bytes
+        ) / elapsed_msecs
 
-        upload_bandwidth_mb_sec = (upload_bandwidth / 1024 / 1024) * 1000
-        download_bandwidth_mb_sec = (download_bandwidth / 1024 / 1024) * 1000
+        to_mb_sec = 1000 / 1024 / 1024
+        upload_bandwidth_mb_sec = upload_bandwidth * to_mb_sec
+        download_bandwidth_mb_sec = download_bandwidth * to_mb_sec
+        cloud_internal_download_bandwidth_mb_sec = cloud_internal_download_bandwidth * to_mb_sec
+        cloud_internal_upload_bandwidth_mb_sec = cloud_internal_upload_bandwidth * to_mb_sec
 
         self.last_time_msecs = now_time_msecs
         self.last_upload_bytes = now_upload_bytes
         self.last_download_bytes = now_download_bytes
+        self.last_cloud_internal_download_bytes = now_cloud_internal_download_bytes
+        self.last_cloud_internal_upload_bytes = now_cloud_internal_upload_bytes
 
-        return (upload_bandwidth_mb_sec, download_bandwidth_mb_sec)
+        return (
+            upload_bandwidth_mb_sec,
+            download_bandwidth_mb_sec,
+            cloud_internal_upload_bandwidth_mb_sec,
+            cloud_internal_download_bandwidth_mb_sec,
+        )
 
     async def measure(self):
         now = time_msecs()
@@ -220,20 +272,22 @@ iptables -t mangle -L -v -n -x -w | grep "{self.veth_host}" | awk '{{ if ($6 == 
         overlay_usage_bytes = self.overlay_storage_usage_bytes()
         io_usage_bytes = self.io_storage_usage_bytes()
         non_io_usage_bytes = overlay_usage_bytes if self.is_attached_disk else overlay_usage_bytes - io_usage_bytes
-        network_upload_bytes_per_second, network_download_bytes_per_second = await self.network_bandwidth()
+        upload, download, cloud_internal_upload, cloud_internal_download = await self.network_bandwidth()
 
-        if network_upload_bytes_per_second is None or network_download_bytes_per_second is None:
+        if upload is None:
             return
 
         data = struct.pack(
-            '>2qd2q2d',
+            '>2qd2q4d',
             now,
             memory_usage_bytes,
             percent_cpu_usage,
             non_io_usage_bytes,
             io_usage_bytes,
-            network_upload_bytes_per_second,
-            network_download_bytes_per_second,
+            upload,
+            download,
+            cloud_internal_upload,
+            cloud_internal_download,
         )
 
         assert self.out
