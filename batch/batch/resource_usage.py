@@ -178,7 +178,7 @@ class ResourceUsageMonitor:
             now_time_msecs = time_msecs()
 
             iptables_output, stderr = await check_shell_output(f"""
-iptables -t mangle -L -v -n -x -w | grep "{self.veth_host}" | awk '{{ if ($6 == "{self.veth_host}" && $8 == "0.0.0.0/0") print "ul", $2; if ($7 == "{self.veth_host}" && $9 == "0.0.0.0/0") print "dl", $2 }}'
+iptables -t mangle -L -v -n -x -w | grep "{self.veth_host}" | awk '{{ if ($6 == "{self.veth_host}" && $8 == "0.0.0.0/0" && $9 == "0.0.0.0/0") print "ul", $2; if ($7 == "{self.veth_host}" && $8 == "0.0.0.0/0" && $9 == "0.0.0.0/0") print "dl", $2 }}'
 """)
             if stderr:
                 log.exception(stderr)

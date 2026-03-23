@@ -291,12 +291,12 @@ iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -N {self.cloud_internal_dl_ch
 iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -N {self.cloud_internal_ul_chain} && \
 iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A {self.cloud_internal_dl_chain} -j MARK --set-mark 12 && \
 iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A {self.cloud_internal_ul_chain} -j MARK --set-mark 13 && \
-iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -s 10.0.0.0/8 -j {self.cloud_internal_dl_chain} && \
-iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -s 199.36.153.4/30 -j {self.cloud_internal_dl_chain} && \
-iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -s 199.36.153.8/30 -j {self.cloud_internal_dl_chain} && \
-iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -d 10.0.0.0/8 -j {self.cloud_internal_ul_chain} && \
-iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -d 199.36.153.4/30 -j {self.cloud_internal_ul_chain} && \
-iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -d 199.36.153.8/30 -j {self.cloud_internal_ul_chain}
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -d 10.0.0.0/8 -j {self.cloud_internal_ul_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -d 199.36.153.4/30 -j {self.cloud_internal_ul_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A PREROUTING --in-interface {self.veth_host} -d 199.36.153.8/30 -j {self.cloud_internal_ul_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -s 10.0.0.0/8 -j {self.cloud_internal_dl_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -s 199.36.153.4/30 -j {self.cloud_internal_dl_chain} && \
+iptables -w {IPTABLES_WAIT_TIMEOUT_SECS} -t mangle -A POSTROUTING --out-interface {self.veth_host} -s 199.36.153.8/30 -j {self.cloud_internal_dl_chain}
 """)
 
     async def expose_port(self, port, host_port):
