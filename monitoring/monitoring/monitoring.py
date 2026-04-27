@@ -280,7 +280,7 @@ async def monitor_disks(app):
     disk_counts = defaultdict(list)
 
     for zone in app[AppKeys.ZONES]:
-        async for disk in await compute_client.list(f'/zones/{zone}/disks', params={'filter': '(labels.batch = 1)'}):
+        async for disk in compute_client.list(f'/zones/{zone}/disks', params={'filter': '(labels.batch = 1)'}):
             namespace = disk['labels']['namespace']
             size_gb = int(disk['sizeGb'])
 
@@ -316,7 +316,7 @@ async def monitor_instances(app):
     instance_counts: Dict[InstanceLabels, int] = defaultdict(int)
 
     for zone in app[AppKeys.ZONES]:
-        async for instance in await compute_client.list(
+        async for instance in compute_client.list(
             f'/zones/{zone}/instances', params={'filter': '(labels.role = batch2-agent)'}
         ):
             instance_labels = InstanceLabels(
