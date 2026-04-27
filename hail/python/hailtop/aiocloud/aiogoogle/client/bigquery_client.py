@@ -37,7 +37,8 @@ class ResultsParser:
             if typ in ('BOOLEAN', 'BOOL'):
                 return or_none(bool, value)
             if typ == 'TIMESTAMP':
-                return int(or_none(float, value))
+                v = or_none(float, value)
+                return None if v is None else int(v)
             # DATE, TIME, DATETIME
             raise NotImplementedError((name, value, typ, mode))
 
