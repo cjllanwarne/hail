@@ -208,7 +208,7 @@ CASE
   WHEN service.id = "6F81-5844-456A" THEN "unknown"
   ELSE NULL
 END AS source
-FROM `broad-ctsa.hail_billing.gcp_billing_export_v1_0055E5_9CA197_B9B894`
+FROM `hail-vdc.hail_vdc_billing.gcp_billing_export_v1_00E7E5_D339BE_C54ACE`
 WHERE DATE(_PARTITIONTIME) >= "{start_str}" AND DATE(_PARTITIONTIME) <= "{end_str}" AND project.name = "{PROJECT}" AND invoice.month = "{invoice_month}"
 GROUP BY service_id, service_description, sku_id, sku_description, source;
 """
