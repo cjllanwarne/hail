@@ -198,6 +198,7 @@ HIGH_PRIORITY = 'prio:high'
 STACKED_PR = 'stacked PR'
 WIP = 'WIP'
 DO_NOT_TEST = 'do-not-test'
+RERUN_ALL_TESTS = 'rerun all tests'
 
 DO_NOT_MERGE = {STACKED_PR, WIP}
 
@@ -571,9 +572,15 @@ mkdir -p {shq(repo_dir)}
 
             with open(f'{repo_dir}/build.yaml', 'r', encoding='utf-8') as f:
                 build_yaml = f.read()
-            requested_steps_set = compute_requested_steps(build_yaml, changed_files, scope='test', cloud=CLOUD)
-            log.info(f'PR #{self.number} selected steps ({len(requested_steps_set)})')
-            config = BuildConfiguration(self, build_yaml, scope='test', requested_step_names=list(requested_steps_set))
+            run_all = RERUN_ALL_TESTS in self.labels or 'build.yaml' in changed_files
+            if run_all:
+                log.info(f'PR #{self.number} running full test suite (rerun all tests label or build.yaml changed)')
+                requested_step_names: List[str] = []
+            else:
+                requested_steps_set = compute_requested_steps(build_yaml, changed_files, scope='test', cloud=CLOUD)
+                log.info(f'PR #{self.number} selected steps ({len(requested_steps_set)})')
+                requested_step_names = list(requested_steps_set)
+            config = BuildConfiguration(self, build_yaml, scope='test', requested_step_names=requested_step_names)
             namespace = config.namespace()
             services = config.deployed_services()
             with open(f'{repo_dir}/ci/test/resources/build.yaml', 'r', encoding='utf-8') as f:
