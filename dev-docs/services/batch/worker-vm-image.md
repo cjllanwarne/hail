@@ -70,14 +70,16 @@ the disk.
 
 ### Incrementing the version
 
-Increment the version before running the script — the version is part of the image name, so running
-without incrementing would delete and replace the existing production image in place.
-
 1. Increment `WORKER_IMAGE_VERSION` in `batch/gcp-create-worker-image.sh`
+    - Very Important! You MUST increment the version before running the script! The version is part of
+the image name, so running without doing this would replace the current image relied on in prod.
 2. Run the build script (see [Building the image](#building-the-image) above)
+    - Start with a custom NAMESPACE to make sure the image builds and deploys successfully. If it
+looks good, move on to the `default` namespace (nb: remembering to double-check the image version).
 3. Update the hardcoded image reference in
    `batch/batch/cloud/gcp/driver/create_instance.py` (search for `batch-worker-`)
-4. Deploy batch
+4. Test and run CI.
+5. Deploy batch
 
 ## Key files
 
