@@ -26,13 +26,19 @@ image. The temporary VM is deleted afterward.
 
 ## GCP
 
-### Prerequisites
+### First time creation
+
+If this is a brand new deployment, the worker image must be created before Batch can be deployed.
+See `infra/gcp/README.md` — the image creation step comes after `deploy_unmanaged` and before
+downloading global-config.
+
+#### Prerequisites
 
 - `gcloud` configured and authenticated with the target project
 - `NAMESPACE` environment variable set (usually `default`)
 - Access to the project's global-config (for project ID, zone, docker root image)
 
-### Building the image
+#### Building the image
 
 From the repo root:
 
@@ -43,7 +49,7 @@ NAMESPACE=default batch/gcp-create-worker-image.sh
 The script will show a confirmation prompt with the image name, version, project, and zone before
 proceeding.
 
-### What gets installed (startup script)
+#### What gets installed (startup script)
 
 The GCP startup script (`build-batch-worker-image-startup-gcp.sh`) installs:
 
@@ -57,28 +63,21 @@ The GCP startup script (`build-batch-worker-image-startup-gcp.sh`) installs:
 The VM shuts itself down when the script completes. The build script polls for this, then snapshots
 the disk.
 
-### Image naming
+#### Image naming
 
 - `default` namespace: `batch-worker-{VERSION}` (e.g. `batch-worker-17`)
 - Other namespaces: `batch-worker-{NAMESPACE}-{VERSION}`
 
-### Bumping the version
+### Incrementing the version
+
+Increment the version before running the script — the version is part of the image name, so running
+without incrementing would delete and replace the existing production image in place.
 
 1. Increment `WORKER_IMAGE_VERSION` in `batch/gcp-create-worker-image.sh`
-2. Run the build script as above
+2. Run the build script (see [Building the image](#building-the-image) above)
 3. Update the hardcoded image reference in
    `batch/batch/cloud/gcp/driver/create_instance.py` (search for `batch-worker-`)
 4. Deploy batch
-
-### First-time setup
-
-If this is a brand new deployment, the worker image must be created before Batch can be deployed.
-See `infra/gcp/README.md` -- the image creation step comes after `deploy_unmanaged` and before
-downloading global-config:
-
-```bash
-NAMESPACE=default $HAIL/batch/gcp-create-worker-image.sh
-```
 
 ## Key files
 
