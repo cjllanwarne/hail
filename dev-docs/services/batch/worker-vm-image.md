@@ -4,9 +4,8 @@
 
 Batch worker VMs use a two-layer image system:
 
-1. **VM image** (this doc) -- A cloud-provider VM image (GCE image / Azure Shared Image Gallery)
-   with the base OS, Docker, GPU drivers, and the root Docker image pre-pulled. This is what each
-   worker VM boots from.
+1. **VM image** (this doc) -- A GCE VM image with the base OS, Docker, GPU drivers, and the root
+   Docker image pre-pulled. This is what each worker VM boots from.
 
 2. **Docker worker image** (`Dockerfile.worker`) -- The container that actually runs the batch
    worker process. It's built separately via `make batch-worker-image` and pulled onto workers at
@@ -50,7 +49,8 @@ The GCP startup script (`build-batch-worker-image-startup-gcp.sh`) installs:
 
 - Google logging agent and Cloud Ops agent
 - Docker CE + `docker-credential-gcr`
-- NVIDIA drivers (535.183.01) and `nvidia-container-toolkit`
+- NVIDIA drivers (535.183.01) and `nvidia-container-toolkit` — baked into every worker image, but
+  only activated at runtime on VMs with GPUs attached (see `is_gpu()` check in `worker.py`)
 - Build tools (gcc-12, g++-12)
 - Pre-pulls the `docker_root_image` from Artifact Registry
 
@@ -80,57 +80,11 @@ downloading global-config:
 NAMESPACE=default $HAIL/batch/gcp-create-worker-image.sh
 ```
 
-## Azure
-
-### Prerequisites
-
-- Azure CLI authenticated
-- `$HAIL` environment variable pointing to the repo root
-- Access to global-config secret (for subscription ID, resource group, location, docker prefix)
-- The `batch-worker` managed identity must exist in the resource group
-
-### Building the image
-
-```bash
-source $HAIL/devbin/functions.sh
-$HAIL/batch/az-create-worker-image.sh
-```
-
-### What gets installed (startup script)
-
-The Azure startup script (`build-batch-worker-image-startup-azure.sh`) installs:
-
-- Docker CE
-- Azure CLI
-- Authenticates with Azure Container Registry via managed identity
-- Pre-pulls the `docker_root_image`
-
-Note: Azure workers do not have GPU support baked into the VM image (unlike GCP).
-
-### Image naming
-
-Images are stored in an Azure Shared Image Gallery:
-
-- Gallery: `{RESOURCE_GROUP}_batch`
-- Image definition: `batch-worker-22-04`
-- Version: `0.0.{N}` (e.g. `0.0.14`)
-
-### Bumping the version
-
-1. Increment `WORKER_VERSION` in `batch/az-create-worker-image.sh`
-2. Run the build script as above
-3. Update the hardcoded image reference in
-   `batch/batch/cloud/azure/driver/create_instance.py` (search for `batch-worker-22-04/versions/`)
-4. Deploy batch
-
 ## Key files
 
 | File | Purpose |
 |------|---------|
 | `batch/gcp-create-worker-image.sh` | GCP build orchestration script |
-| `batch/az-create-worker-image.sh` | Azure build orchestration script |
 | `batch/build-batch-worker-image-startup-gcp.sh` | GCP VM startup/provisioning (Jinja2 template) |
-| `batch/build-batch-worker-image-startup-azure.sh` | Azure VM startup/provisioning (Jinja2 template) |
 | `batch/Dockerfile.worker` | Docker worker image (separate from the VM image) |
 | `batch/batch/cloud/gcp/driver/create_instance.py` | Runtime: creates worker VMs using the GCP image |
-| `batch/batch/cloud/azure/driver/create_instance.py` | Runtime: creates worker VMs using the Azure image |
