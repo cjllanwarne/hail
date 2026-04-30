@@ -73,13 +73,20 @@ the disk.
 1. Increment `WORKER_IMAGE_VERSION` in `batch/gcp-create-worker-image.sh`
     - Very Important! You MUST increment the version before running the script! The version is part of
 the image name, so running without doing this would replace the current image relied on in prod.
-2. Run the build script (see [Building the image](#building-the-image) above)
-    - Start with a custom NAMESPACE to make sure the image builds and deploys successfully. If it
-looks good, move on to the `default` namespace (nb: remembering to double-check the image version).
-3. Update the hardcoded image reference in
+2. Run the build script with a custom NAMESPACE, to make sure the image builds and deploys successfully.
+    - eg: `NAMESPACE=YOURNAME batch/gcp-create-worker-image.sh`
+4. Update the hardcoded image reference in
    `batch/batch/cloud/gcp/driver/create_instance.py` (search for `batch-worker-`)
-4. Test and run CI.
-5. Deploy batch
+5. Test deploy, and check things look good.
+6. Repeat with `NAMESPACE=default`
+7. Create PR, watch CI, deploy with the updated image.
+8. NOTE: The rollout will only impact newly created workers. Any preexisting workers will remain on their
+old image unti they get manually deleted, or gradually replaced through normal system operation.
+
+#### Rollback
+
+Rollback is fortunately easy: simply revert the version in `batch/batch/cloud/gcp/driver/create_instance.py` and
+redeploy. You'll need to delete alkl 
 
 ## Key files
 
