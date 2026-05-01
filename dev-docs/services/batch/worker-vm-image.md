@@ -70,10 +70,17 @@ the disk.
 
 ### Incrementing the version
 
+#### At the same time
+
+1. Take this opportunity to identify a suitable new base image (`UBUNTU_IMAGE` - look in the image list in GCP console for the latest).
+2. Also check whether there are new nvidia GPU drivers (I've seen out of date drivers cause the build to hang indefinitely if they don't
+   match the OS version)
+
+#### Procedure to Increment
+
 1. Increment `WORKER_IMAGE_VERSION` in `batch/gcp-create-worker-image.sh`
     - Very Important! You MUST increment the version before running the script! The version is part of
 the image name, so running without doing this would replace the current image relied on in prod.
-2. Take this opportunity to identify a suitable new base image (`UBUNTU_IMAGE` - look in the image list in GCP console for the latest).
 3. Run the build script with a custom NAMESPACE, to make sure the image builds and deploys successfully.
     - eg: `NAMESPACE=YOURNAME batch/gcp-create-worker-image.sh`
 4. Monitor the build process: open the VM list in gcloud console. find the build worker you just triggered. Under the three dots
