@@ -84,12 +84,12 @@ open Monitoring and watch the logs.
 7. Repeat with `NAMESPACE=default`
 8. Create PR, watch CI, deploy with the updated image.
 9. NOTE: The rollout will only impact newly created workers. Any preexisting workers will remain on their
-old image unti they get manually deleted, or gradually replaced through normal system operation.
+old image until they get manually deleted, or gradually replaced through normal system operation.
 
 #### Rollback
 
 Rollback is fortunately easy: simply revert the version in `batch/batch/cloud/gcp/driver/create_instance.py` and
-redeploy. You'll need to delete alkl 
+redeploy. You'll need to delete all existing workers for the rollback to take effect. 
 
 ## Key files
 
