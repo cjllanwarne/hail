@@ -81,16 +81,16 @@ the disk.
 1. Increment `WORKER_IMAGE_VERSION` in `batch/gcp-create-worker-image.sh`
     - Very Important! You MUST increment the version before running the script! The version is part of
 the image name, so running without doing this would replace the current image relied on in prod.
-3. Run the build script with a custom NAMESPACE, to make sure the image builds and deploys successfully.
+2. Run the build script with a custom NAMESPACE, to make sure the image builds and deploys successfully.
     - eg: `NAMESPACE=YOURNAME batch/gcp-create-worker-image.sh`
-4. Monitor the build process: open the VM list in gcloud console. find the build worker you just triggered. Under the three dots
+3. Monitor the build process: open the VM list in gcloud console. find the build worker you just triggered. Under the three dots
 open Monitoring and watch the logs.
-5. Update the hardcoded image reference in
+4. Update the hardcoded image reference in
    `batch/batch/cloud/gcp/driver/create_instance.py` (search for `batch-worker-`)
-6. Test deploy, and check things look good.
-7. Repeat with `NAMESPACE=default`
-8. Create PR, watch CI, deploy with the updated image.
-9. NOTE: The rollout will only impact newly created workers. Any preexisting workers will remain on their
+5. Test deploy, and check things look good.
+6. Repeat with `NAMESPACE=default`
+7. Create PR, watch CI, deploy with the updated image.
+8. NOTE: The rollout will only impact newly created workers. Any preexisting workers will remain on their
 old image until they get manually deleted, or gradually replaced through normal system operation.
 
 #### Rollback
