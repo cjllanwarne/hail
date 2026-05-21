@@ -1,8 +1,19 @@
 import { createRoot } from 'react-dom/client';
+import { getSystemPermissions } from './shared';
+import { IndexPage } from './IndexPage';
 
-function HelloReact() {
-  return <p style={{ fontFamily: 'sans-serif', padding: '1rem' }}>Hello React (batch-driver)</p>;
+const rootEl = document.getElementById('batch-driver-react-root');
+if (rootEl) {
+  const { page, basePath = '', csrfToken = '' } = rootEl.dataset;
+  const root = createRoot(rootEl);
+
+  if (page === 'index') {
+    root.render(
+      <IndexPage
+        basePath={basePath}
+        csrfToken={csrfToken}
+        permissions={getSystemPermissions()}
+      />,
+    );
+  }
 }
-
-const el = document.getElementById('batch-driver-react-root');
-if (el) createRoot(el).render(<HelloReact />);

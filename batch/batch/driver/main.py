@@ -201,6 +201,50 @@ def active_instances_only(fun: Callable[[web.Request, Instance], Awaitable[web.S
     return wrapped
 
 
+def _inst_coll_summary(ic) -> dict:
+    stats = ic.current_worker_version_stats
+    return {
+        'name': ic.name,
+        'all_versions_instances_by_state': dict(ic.all_versions_instances_by_state),
+        'all_versions_cores_mcpu_by_state': dict(ic.all_versions_cores_mcpu_by_state),
+        'schedulable_free_cores_mcpu': stats.active_schedulable_free_cores_mcpu,
+        'schedulable_cores_mcpu': stats.cores_mcpu_by_state['active'],
+    }
+
+
+def _instance_to_dict(instance: 'Instance') -> dict:
+    return {
+        'name': instance.name,
+        'inst_coll_name': instance.inst_coll.name,
+        'location': instance.location,
+        'version': instance.version,
+        'state': instance.state,
+        'free_cores_mcpu': instance.free_cores_mcpu,
+        'cores_mcpu': instance.cores_mcpu,
+        'failed_request_count': instance.failed_request_count,
+        'time_created_ms': instance.time_created,
+        'last_updated_ms': instance.last_updated,
+    }
+
+
+async def _set_frozen(app: web.Application, db: Database, freeze: bool) -> dict:
+    await db.execute_update('UPDATE globals SET frozen = %s;', (1 if freeze else 0,))
+    app['frozen'] = freeze
+    return {'frozen': freeze}
+
+
+async def _update_feature_flags(
+    app: web.Application, db: Database, compact_billing_tables: bool, oms_agent: bool, dockerhub_proxy: bool
+) -> dict:
+    await db.execute_update(
+        'UPDATE feature_flags SET compact_billing_tables = %s, oms_agent = %s, dockerhub_proxy = %s;',
+        (compact_billing_tables, oms_agent, dockerhub_proxy),
+    )
+    row = await db.select_and_fetchone('SELECT * FROM feature_flags')
+    app['feature_flags'] = row
+    return {'feature_flags': dict(row)}
+
+
 @routes.get('/healthcheck')
 async def get_healthcheck(_) -> web.Response:
     return web.Response()
@@ -225,6 +269,63 @@ async def get_check_invariants(request: web.Request, _) -> web.Response:
         if resource_agg_result
         else None,
     })
+
+
+@routes.get('/api/v1alpha/driver_info')
+@auth.authenticated_users_with_permission(SystemPermission.READ_DEPLOYED_SYSTEM_STATE)
+async def api_get_driver_info(request: web.Request, _) -> web.Response:
+    app = request.app
+    db: Database = app['db']
+    inst_coll_manager: InstanceCollectionManager = app['driver'].inst_coll_manager
+    jpim: JobPrivateInstanceManager = app['driver'].job_private_inst_manager
+
+    ready_cores = await db.select_and_fetchone("""
+SELECT CAST(COALESCE(SUM(ready_cores_mcpu), 0) AS SIGNED) AS ready_cores_mcpu
+FROM user_inst_coll_resources;
+""")
+
+    return json_response({
+        'instance_id': app['instance_id'],
+        'frozen': app['frozen'],
+        'ready_cores_mcpu': ready_cores['ready_cores_mcpu'],
+        'feature_flags': dict(app['feature_flags']),
+        'pools': [_inst_coll_summary(p) for p in inst_coll_manager.pools.values()],
+        'jpim': _inst_coll_summary(jpim),
+        'global_stats': {
+            'n_instances_by_state': dict(inst_coll_manager.global_n_instances_by_state),
+            'cores_mcpu_by_state': dict(inst_coll_manager.global_cores_mcpu_by_state),
+            'schedulable_free_cores_mcpu': inst_coll_manager.global_schedulable_free_cores_mcpu,
+            'schedulable_cores_mcpu': inst_coll_manager.global_schedulable_cores_mcpu,
+        },
+        'instances': [_instance_to_dict(i) for i in inst_coll_manager.name_instance.values()],
+    })
+
+
+@routes.post('/api/v1alpha/freeze')
+@auth.authenticated_users_with_permission(SystemPermission.UPDATE_DEPLOYED_SYSTEM_STATE)
+async def api_freeze(request: web.Request, _) -> web.Response:
+    return json_response(await _set_frozen(request.app, request.app['db'], True))
+
+
+@routes.post('/api/v1alpha/unfreeze')
+@auth.authenticated_users_with_permission(SystemPermission.UPDATE_DEPLOYED_SYSTEM_STATE)
+async def api_unfreeze(request: web.Request, _) -> web.Response:
+    return json_response(await _set_frozen(request.app, request.app['db'], False))
+
+
+@routes.post('/api/v1alpha/configure-feature-flags')
+@auth.authenticated_users_with_permission(SystemPermission.UPDATE_DEPLOYED_SYSTEM_STATE)
+async def api_configure_feature_flags(request: web.Request, _) -> web.Response:
+    body = await request.json()
+    return json_response(
+        await _update_feature_flags(
+            request.app,
+            request.app['db'],
+            bool(body.get('compact_billing_tables', False)),
+            bool(body.get('oms_agent', False)),
+            bool(body.get('dockerhub_proxy', False)),
+        )
+    )
 
 
 @routes.patch('/api/v1alpha/batches/{user}/{batch_id}/update')
@@ -451,6 +552,9 @@ async def billing_update(request, instance):
 @web_security_headers
 @auth.authenticated_users_with_permission(SystemPermission.READ_DEPLOYED_SYSTEM_STATE)
 async def get_index(request, userdata):
+    if request.cookies.get('hail_react_ui') == '1':
+        return await render_template('batch-driver', request, userdata, 'index_react.html', {'use_tailwind': True})
+
     app = request.app
     db: Database = app['db']
     inst_coll_manager: InstanceCollectionManager = app['driver'].inst_coll_manager
@@ -573,34 +677,24 @@ def validate_int(session, name, value, predicate, description):
     return validate(session, name, i, predicate, description)
 
 
-@routes.get('/helloreact')
+@routes.get('/main')
 @web_security_headers
 @auth.authenticated_users_with_permission(SystemPermission.READ_DEPLOYED_SYSTEM_STATE)
-async def hello_react(request: web.Request, userdata) -> web.Response:
-    return await render_template('batch-driver', request, userdata, 'hello_react.html', {'use_tailwind': True})
+async def get_index_react(request: web.Request, userdata) -> web.Response:
+    return await render_template('batch-driver', request, userdata, 'index_react.html', {'use_tailwind': True})
 
 
 @routes.post('/configure-feature-flags')
 @auth.authenticated_users_with_permission(SystemPermission.UPDATE_DEPLOYED_SYSTEM_STATE)
 async def configure_feature_flags(request: web.Request, _) -> NoReturn:
-    app = request.app
-    db: Database = app['db']
     post = await request.post()
-
-    compact_billing_tables = 'compact_billing_tables' in post
-    oms_agent = 'oms_agent' in post
-    dockerhub_proxy = 'dockerhub_proxy' in post
-
-    await db.execute_update(
-        """
-UPDATE feature_flags SET compact_billing_tables = %s, oms_agent = %s, dockerhub_proxy = %s;
-""",
-        (compact_billing_tables, oms_agent, dockerhub_proxy),
+    await _update_feature_flags(
+        request.app,
+        request.app['db'],
+        'compact_billing_tables' in post,
+        'oms_agent' in post,
+        'dockerhub_proxy' in post,
     )
-
-    row = await db.select_and_fetchone('SELECT * FROM feature_flags')
-    app['feature_flags'] = row
-
     raise web.HTTPFound(deploy_config.external_url('batch-driver', '/'))
 
 
@@ -959,21 +1053,12 @@ async def get_job_private_inst_manager(request, userdata):
 @auth.authenticated_users_with_permission(SystemPermission.UPDATE_DEPLOYED_SYSTEM_STATE)
 async def freeze_batch(request: web.Request, _) -> NoReturn:
     app = request.app
-    db: Database = app['db']
     session = await aiohttp_session.get_session(request)
-
     if app['frozen']:
         set_message(session, 'Batch is already frozen.', 'info')
-        raise web.HTTPFound(deploy_config.external_url('batch-driver', '/'))
-
-    await db.execute_update("""
-UPDATE globals SET frozen = 1;
-""")
-
-    app['frozen'] = True
-
-    set_message(session, 'Froze all instance collections and batch submissions.', 'info')
-
+    else:
+        await _set_frozen(app, app['db'], True)
+        set_message(session, 'Froze all instance collections and batch submissions.', 'info')
     raise web.HTTPFound(deploy_config.external_url('batch-driver', '/'))
 
 
@@ -981,21 +1066,12 @@ UPDATE globals SET frozen = 1;
 @auth.authenticated_users_with_permission(SystemPermission.UPDATE_DEPLOYED_SYSTEM_STATE)
 async def unfreeze_batch(request: web.Request, _) -> NoReturn:
     app = request.app
-    db: Database = app['db']
     session = await aiohttp_session.get_session(request)
-
     if not app['frozen']:
         set_message(session, 'Batch is already unfrozen.', 'info')
-        raise web.HTTPFound(deploy_config.external_url('batch-driver', '/'))
-
-    await db.execute_update("""
-UPDATE globals SET frozen = 0;
-""")
-
-    app['frozen'] = False
-
-    set_message(session, 'Unfroze all instance collections and batch submissions.', 'info')
-
+    else:
+        await _set_frozen(app, app['db'], False)
+        set_message(session, 'Unfroze all instance collections and batch submissions.', 'info')
     raise web.HTTPFound(deploy_config.external_url('batch-driver', '/'))
 
 
@@ -1800,6 +1876,7 @@ def run():
     setup_aiohttp_jinja2(app, 'batch.driver')
     setup_common_static_routes(routes)
     routes.static('/batch_driver/static/js', f'{DRIVER_ROOT}/static/js')
+    routes.static('/batch_driver/static/compiled-js', f'{DRIVER_ROOT}/static/compiled-js')
     app.add_routes(routes)
     app.router.add_get("/metrics", server_stats)
 

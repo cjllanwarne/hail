@@ -25,7 +25,8 @@ STATIC_DIRS: dict[str, list[tuple[str, str]]] = {
         ('/batch/static/js', 'batch/batch/front_end/static/js'),
     ],
     'batch-driver': [
-        ('/batch/static/compiled-js', 'batch/batch/driver/static/compiled-js'),
+        ('/batch_driver/static/compiled-js', 'batch/batch/driver/static/compiled-js'),
+        ('/batch_driver/static/js', 'batch/batch/driver/static/js'),
     ],
     'ci': [('/ci/static/compiled-js', 'ci/ci/static/compiled-js')],
     'monitoring': [('/monitoring/static/compiled-js', 'monitoring/monitoring/static/compiled-js')],
@@ -57,18 +58,18 @@ async def default_proxied_api_route(request: web.Request):
 _FAKE_DEV_USERDATA = {'username': 'dev', 'system_permissions': {p.value: True for p in SystemPermission}}
 
 # Pages served entirely from local templates (React shell + client-side data fetching).
-# Add new react-first pages here: (service, method, path, template).
-_LOCAL_REACT_ROUTES: list[tuple[str, str, str, str]] = [
-    ('monitoring',   'GET', '/helloreact', 'hello_react.html'),
-    ('auth',         'GET', '/helloreact', 'hello_react.html'),
-    ('batch-driver', 'GET', '/helloreact', 'hello_react.html'),
-    ('ci',           'GET', '/flaky_tests', 'flaky_tests.html'),
+# Add new react-first pages here: (service, method, path, template, extra_ctx).
+_LOCAL_REACT_ROUTES: list[tuple[str, str, str, str, dict]] = [
+    ('monitoring',   'GET', '/helloreact',  'hello_react.html',  {}),
+    ('auth',         'GET', '/helloreact',  'hello_react.html',  {}),
+    ('ci',           'GET', '/flaky_tests', 'flaky_tests.html',  {}),
+    ('batch-driver', 'GET', '/main',        'index_react.html',  {}),
 ]
 
-for _service, _verb, _path, _template in _LOCAL_REACT_ROUTES:
+for _service, _verb, _path, _template, _extra_ctx in _LOCAL_REACT_ROUTES:
     if _service == SERVICE:
-        async def _handler(request: web.Request, _m=MODULES.get(_service, _service), _t=_template) -> web.Response:
-            return await render_template(_m, request, _FAKE_DEV_USERDATA, _t, {'use_tailwind': True, 'base_path': ''})
+        async def _handler(request: web.Request, _m=MODULES.get(_service, _service), _t=_template, _ctx=_extra_ctx) -> web.Response:
+            return await render_template(_m, request, _FAKE_DEV_USERDATA, _t, {'use_tailwind': True, 'base_path': '', **_ctx})
         routes.route(_verb, _path)(web_security_headers(_handler))
 
 if SERVICE == 'ci':

@@ -1,6 +1,12 @@
 {% extends "layout.html" %}
 {% block title %}Batch Status{% endblock %}
+{% block head %}
+<script defer src="{{ base_path }}/batch_driver/static/js/driver.js"></script>
+{% endblock %}
 {% block content %}
+<div class="mb-4">
+  <a id="enable-react-ui-btn" href="#" style="font-size:0.85em; color:#0284c7;">Try new layout</a>
+</div>
   <h1>Globals</h1>
   <div class="attributes">
     <div>instance ID: {{ instance_id }}</div>

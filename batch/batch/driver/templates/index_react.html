@@ -1,0 +1,15 @@
+{% extends "layout.html" %}
+{% block title %}Batch Driver{% endblock %}
+{% block head %}
+<script type="module" src="{{ base_path }}/batch_driver/static/compiled-js/index.js"></script>
+{% endblock %}
+{% block content %}
+<div id="batch-driver-react-root"
+  data-page="index"
+  data-base-path="{{ base_path }}"
+  data-csrf-token="{{ csrf_token }}">
+  <div style="display:flex; align-items:center; justify-content:center; margin-top:6rem;">
+    <span style="font-size:3rem; font-weight:300; color:#0284c7;">Loading&hellip;</span>
+  </div>
+</div>
+{% endblock %}
