@@ -323,7 +323,7 @@ export function IndexPage({ basePath, csrfToken, permissions }: Props): JSX.Elem
     );
   }
 
-  if (error || !data) {
+  if (!data) {
     return <div className="mt-8 font-light text-red-600">Error loading driver info: {error ?? 'unknown error'}</div>;
   }
 
@@ -350,6 +350,9 @@ export function IndexPage({ basePath, csrfToken, permissions }: Props): JSX.Elem
             intervalMs={REFRESH_INTERVAL_MS}
             trackColor="#cbd5e1"
           />
+          {error && (
+            <div className="mt-1 text-xs text-red-500">Refresh failed: {error}</div>
+          )}
         </div>
       </div>
 

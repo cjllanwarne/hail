@@ -86,6 +86,7 @@ export function usePolling<T>(url: string, intervalMs: number | null): {
       setCountdownKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      if (isRefresh) setCountdownKey((k) => k + 1);
     } finally {
       setLoading(false);
       if (isRefresh) setRefreshing(false);
