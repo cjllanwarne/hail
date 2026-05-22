@@ -20,6 +20,8 @@ export interface InstCollSummary {
   all_versions_cores_mcpu_by_state: InstCollStatsByState;
   schedulable_free_cores_mcpu: number;
   schedulable_cores_mcpu: number;
+  max_live_instances: number;
+  max_instances: number;
 }
 
 export interface GlobalStats {
@@ -60,36 +62,47 @@ export interface DriverInfo {
   instances: DriverInstance[];
 }
 
-export function usePolling<T>(url: string, intervalMs = 10_000): {
+export function usePolling<T>(url: string, intervalMs: number | null): {
   data: T | null;
   error: string | null;
   loading: boolean;
+  refreshing: boolean;
+  countdownKey: number;
   refresh: () => void;
 } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [countdownKey, setCountdownKey] = useState(0);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     try {
       const resp = await fetch(url, { credentials: 'same-origin' });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       setData(await resp.json() as T);
       setError(null);
+      setCountdownKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
+      if (isRefresh) setRefreshing(false);
     }
   }, [url]);
 
   useEffect(() => {
-    void fetchData();
-    const id = setInterval(() => { void fetchData(); }, intervalMs);
+    void fetchData(false);
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (intervalMs === null) return;
+    const id = setInterval(() => { void fetchData(true); }, intervalMs);
     return () => clearInterval(id);
   }, [fetchData, intervalMs]);
 
-  return { data, error, loading, refresh: fetchData };
+  return { data, error, loading, refreshing, countdownKey, refresh: () => { void fetchData(true); } };
 }
 
 export async function driverPost(url: string, csrfToken: string, body?: unknown): Promise<Response> {

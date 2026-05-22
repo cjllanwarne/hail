@@ -207,6 +207,8 @@ def _inst_coll_summary(ic) -> dict:
         'name': ic.name,
         'all_versions_instances_by_state': dict(ic.all_versions_instances_by_state),
         'all_versions_cores_mcpu_by_state': dict(ic.all_versions_cores_mcpu_by_state),
+        'max_live_instances': ic.max_live_instances,
+        'max_instances': ic.max_instances,
         'schedulable_free_cores_mcpu': stats.active_schedulable_free_cores_mcpu,
         'schedulable_cores_mcpu': stats.cores_mcpu_by_state['active'],
     }
@@ -1809,7 +1811,7 @@ SELECT instance_id, frozen FROM globals;
     instance_id = row['instance_id']
     log.info(f'instance_id {instance_id}')
     app['instance_id'] = instance_id
-    app['frozen'] = row['frozen']
+    app['frozen'] = bool(row['frozen'])
 
     row = await db.select_and_fetchone('SELECT * FROM feature_flags')
     app['feature_flags'] = row

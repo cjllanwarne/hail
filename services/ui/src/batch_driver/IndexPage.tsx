@@ -11,24 +11,27 @@ import {
   naturalDelta,
   usePolling,
 } from './shared';
+import { AutoRefresher } from '../shared/AutoRefresher';
 
 const STATES = ['pending', 'active', 'inactive', 'deleted'] as const;
 
 function cores(mcpu: number): string {
-  return (mcpu / 1000).toString();
+  return ((mcpu ?? 0) / 1000).toFixed(2);
 }
 
-function pct(num: number, denom: number): string {
-  if (denom === 0) return '';
-  return `${((num * 100) / denom).toFixed(1)}%`;
+const EMPTY = <span className="text-zinc-300">--</span>;
+
+function pct(num: number, denom: number): JSX.Element | string {
+  if (!denom) return EMPTY;
+  return `${(((num ?? 0) * 100) / denom).toFixed(1)}%`;
 }
 
 function StatesByState({ counts, unit = 'instances' }: { counts: InstCollStatsByState; unit?: string }) {
   return (
     <>
       {STATES.map((s) => (
-        <td key={s} className="px-3 py-2 text-right tabular-nums">
-          {unit === 'cores' ? cores(counts[s]) : counts[s]}
+        <td key={s} className="px-2 font-light whitespace-nowrap text-right">
+          {unit === 'cores' ? cores(counts[s] ?? 0) : (counts[s] ?? 0)}
         </td>
       ))}
     </>
@@ -37,25 +40,32 @@ function StatesByState({ counts, unit = 'instances' }: { counts: InstCollStatsBy
 
 function InstCollRow({ ic, basePath, isPool }: { ic: InstCollSummary; basePath: string; isPool: boolean }) {
   const href = isPool ? `${basePath}/inst_coll/pool/${ic.name}` : `${basePath}/inst_coll/jpim`;
+  const td = 'px-2 font-light whitespace-nowrap';
+  const num = `${td} text-right`;
   return (
-    <tr className="border-b hover:bg-zinc-50">
-      <td className="px-3 py-2">
+    <tr className="border border-collapse hover:bg-slate-100">
+      <td className={td}>
         <a href={href} className="text-sky-600 hover:underline">{ic.name}</a>
       </td>
       <StatesByState counts={ic.all_versions_instances_by_state} />
-      <td className="px-3 py-2" />
+      <td className={num}>{ic.max_live_instances}</td>
+      <td className={num}>{ic.max_instances}</td>
+      <td className={num}>{pct((ic.all_versions_instances_by_state.pending ?? 0) + (ic.all_versions_instances_by_state.active ?? 0), ic.max_live_instances)}</td>
+      <td className="px-1" />
       <StatesByState counts={ic.all_versions_cores_mcpu_by_state} unit="cores" />
-      <td className="px-3 py-2" />
+      <td className="px-1" />
       {isPool ? (
         <>
-          <td className="px-3 py-2 text-right tabular-nums">{cores(ic.schedulable_free_cores_mcpu)}</td>
-          <td className="px-3 py-2 text-right tabular-nums">{cores(ic.schedulable_cores_mcpu)}</td>
-          <td className="px-3 py-2 text-right tabular-nums text-zinc-400">
-            {pct(ic.schedulable_free_cores_mcpu, ic.schedulable_cores_mcpu)}
-          </td>
+          <td className={num}>{cores(ic.schedulable_free_cores_mcpu)}</td>
+          <td className={num}>{cores(ic.schedulable_cores_mcpu)}</td>
+          <td className={num}>{pct(ic.schedulable_free_cores_mcpu, ic.schedulable_cores_mcpu)}</td>
         </>
       ) : (
-        <td colSpan={3} className="px-3 py-2" />
+        <>
+          <td className={num}>{EMPTY}</td>
+          <td className={num}>{EMPTY}</td>
+          <td className={num}>{EMPTY}</td>
+        </>
       )}
     </tr>
   );
@@ -72,51 +82,54 @@ function InstanceCollectionsTable({
   globalStats: DriverInfo['global_stats'];
   basePath: string;
 }) {
-  const thClass = 'px-3 py-2 text-left font-medium text-zinc-500 text-xs uppercase tracking-wide';
-  const thNumClass = `${thClass} text-right`;
+  const thClass = 'h-10 bg-slate-200 font-light text-md text-center px-2 whitespace-nowrap';
 
   return (
-    <div className="overflow-x-auto rounded border border-zinc-200">
-      <table className="min-w-full text-sm">
-        <thead className="bg-zinc-50 border-b border-zinc-200">
+    <div className="overflow-x-auto">
+      <table className="table-auto">
+        <thead>
           <tr>
             <th rowSpan={2} className={thClass}>Name</th>
-            <th colSpan={4} className={`${thClass} border-l border-zinc-200`}>Instances</th>
-            <th rowSpan={2} className="px-2" />
-            <th colSpan={4} className={`${thClass} border-l border-zinc-200`}>Cores</th>
-            <th rowSpan={2} className="px-2" />
-            <th colSpan={3} className={`${thClass} border-l border-zinc-200`}>Schedulable Cores</th>
+            <th colSpan={7} className={thClass}>Instances</th>
+            <th rowSpan={2} className="bg-slate-200 px-2" />
+            <th colSpan={4} className={thClass}>Cores</th>
+            <th rowSpan={2} className="bg-slate-200 px-2" />
+            <th colSpan={3} className={thClass}>Schedulable Cores</th>
           </tr>
           <tr>
             {(['Pending', 'Active', 'Inactive', 'Deleted'] as const).map((s) => (
-              <th key={s} className={thNumClass}>{s}</th>
+              <th key={s} className={thClass}>{s}</th>
             ))}
+            <th className={thClass}>Max Live</th>
+            <th className={thClass}>Max</th>
+            <th className={thClass}>% of Max</th>
             {(['Pending', 'Active', 'Inactive', 'Deleted'] as const).map((s) => (
-              <th key={s} className={thNumClass}>{s}</th>
+              <th key={s} className={thClass}>{s}</th>
             ))}
-            <th className={thNumClass}>Free</th>
-            <th className={thNumClass}>Total</th>
-            <th className={thNumClass}>% Free</th>
+            <th className={thClass}>Free</th>
+            <th className={thClass}>Total</th>
+            <th className={thClass}>% Free</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-100">
+        <tbody className="border border-collapse border-slate-50">
           {pools.map((p) => (
             <InstCollRow key={p.name} ic={p} basePath={basePath} isPool />
           ))}
           <InstCollRow ic={jpim} basePath={basePath} isPool={false} />
         </tbody>
-        <tfoot className="bg-zinc-50 border-t border-zinc-200 font-medium">
-          <tr>
-            <td className="px-3 py-2">Total</td>
+        <tfoot>
+          <tr className="bg-slate-200 font-light">
+            <td className="px-2 whitespace-nowrap">Total</td>
             <StatesByState counts={globalStats.n_instances_by_state} />
-            <td className="px-3 py-2" />
+            <td className="px-2 text-right">{EMPTY}</td>
+            <td className="px-2 text-right">{EMPTY}</td>
+            <td className="px-2 text-right">{EMPTY}</td>
+            <td className="px-1" />
             <StatesByState counts={globalStats.cores_mcpu_by_state} unit="cores" />
-            <td className="px-3 py-2" />
-            <td className="px-3 py-2 text-right tabular-nums">{cores(globalStats.schedulable_free_cores_mcpu)}</td>
-            <td className="px-3 py-2 text-right tabular-nums">{cores(globalStats.schedulable_cores_mcpu)}</td>
-            <td className="px-3 py-2 text-right tabular-nums text-zinc-400">
-              {pct(globalStats.schedulable_free_cores_mcpu, globalStats.schedulable_cores_mcpu)}
-            </td>
+            <td className="px-1" />
+            <td className="px-2 whitespace-nowrap text-right">{cores(globalStats.schedulable_free_cores_mcpu)}</td>
+            <td className="px-2 whitespace-nowrap text-right">{cores(globalStats.schedulable_cores_mcpu)}</td>
+            <td className="px-2 whitespace-nowrap text-right">{pct(globalStats.schedulable_free_cores_mcpu, globalStats.schedulable_cores_mcpu)}</td>
           </tr>
         </tfoot>
       </table>
@@ -126,41 +139,22 @@ function InstanceCollectionsTable({
 
 function InstanceRow({ instance }: { instance: DriverInstance }) {
   const now = Date.now();
-  const stateColors: Record<string, string> = {
-    active: 'text-emerald-700 bg-emerald-50',
-    pending: 'text-amber-700 bg-amber-50',
-    inactive: 'text-zinc-500 bg-zinc-100',
-    deleted: 'text-red-600 bg-red-50',
-  };
-  const badge = stateColors[instance.state] ?? 'text-zinc-600 bg-zinc-100';
-
+  const td = 'px-2 font-light whitespace-nowrap';
+  const num = `${td} text-right`;
   return (
-    <tr className="border-b hover:bg-zinc-50 text-sm">
-      <td className="px-3 py-2 font-mono text-xs">{instance.name}</td>
-      <td className="px-3 py-2">{instance.inst_coll_name}</td>
-      <td className="px-3 py-2">{instance.location}</td>
-      <td className="px-3 py-2 text-right tabular-nums">{instance.version}</td>
-      <td className="px-3 py-2">
-        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${badge}`}>{instance.state}</span>
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums">
-        {cores(instance.free_cores_mcpu)} / {cores(instance.cores_mcpu)}
-      </td>
-      <td className="px-3 py-2 text-right tabular-nums">{instance.failed_request_count}</td>
-      <td className="px-3 py-2 tabular-nums text-zinc-500 text-xs">
-        {new Date(instance.time_created_ms).toLocaleString()}
-      </td>
-      <td className="px-3 py-2 tabular-nums text-zinc-500 text-xs">
-        {naturalDelta(now - instance.last_updated_ms)} ago
-      </td>
-      <td className="px-3 py-2">
-        <a
-          href={gcpLogsUrl(instance.name)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sky-600 hover:underline text-xs"
-        >
-          Logs ↗
+    <tr className="border border-collapse hover:bg-slate-100">
+      <td className={`${td} font-mono text-sm`}>{instance.name}</td>
+      <td className={td}>{instance.inst_coll_name}</td>
+      <td className={td}>{instance.location}</td>
+      <td className={num}>{instance.version}</td>
+      <td className={td}>{instance.state}</td>
+      <td className={num}>{cores(instance.free_cores_mcpu)} / {cores(instance.cores_mcpu)}</td>
+      <td className={num}>{instance.failed_request_count}</td>
+      <td className={td}>{new Date(instance.time_created_ms).toLocaleString()}</td>
+      <td className={td}>{naturalDelta(now - instance.last_updated_ms)} ago</td>
+      <td className={td}>
+        <a href={gcpLogsUrl(instance.name)} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline">
+          Logs
         </a>
       </td>
     </tr>
@@ -168,27 +162,25 @@ function InstanceRow({ instance }: { instance: DriverInstance }) {
 }
 
 function InstancesTable({ instances }: { instances: DriverInstance[] }) {
-  const thClass = 'px-3 py-2 text-left font-medium text-zinc-500 text-xs uppercase tracking-wide';
+  const thClass = 'h-10 bg-slate-200 font-light text-md text-center px-2 whitespace-nowrap';
 
   return (
-    <div className="overflow-x-auto rounded border border-zinc-200">
-      <table className="min-w-full text-sm">
-        <thead className="bg-zinc-50 border-b border-zinc-200">
+    <div className="overflow-x-auto">
+      <table className="table-auto">
+        <thead>
           <tr>
-            {['Name', 'Collection', 'Location', 'Ver', 'State', 'Free Cores', 'Failed Req', 'Created', 'Updated', ''].map(
-              (h) => (
-                <th key={h} className={thClass}>{h}</th>
-              ),
+            {['Name', 'Instance Collection', 'Location', 'Version', 'State', 'Free Cores', 'Failed Requests', 'Time Created', 'Last Updated', 'Logs'].map(
+              (h) => <th key={h} className={thClass}>{h}</th>,
             )}
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-100">
+        <tbody className="border border-collapse border-slate-50">
           {instances.map((i) => (
             <InstanceRow key={i.name} instance={i} />
           ))}
           {instances.length === 0 && (
             <tr>
-              <td colSpan={10} className="px-3 py-6 text-center text-zinc-400">No instances</td>
+              <td colSpan={10} className="px-2 py-4 text-center font-light text-zinc-400">No instances</td>
             </tr>
           )}
         </tbody>
@@ -196,6 +188,12 @@ function InstancesTable({ instances }: { instances: DriverInstance[] }) {
     </div>
   );
 }
+
+const FLAG_LABELS: Record<string, string> = {
+  compact_billing_tables: 'compact_billing_tables',
+  oms_agent: 'oms_agent',
+  dockerhub_proxy: 'dockerhub_proxy',
+};
 
 function FeatureFlagsPanel({
   flags,
@@ -210,48 +208,63 @@ function FeatureFlagsPanel({
   csrfToken: string;
   onUpdated: (flags: FeatureFlags) => void;
 }) {
+  const [draft, setDraft] = useState<FeatureFlags>({ ...flags });
   const [pending, setPending] = useState(false);
-  const FLAG_LABELS: Record<string, string> = {
-    compact_billing_tables: 'compact_billing_tables',
-    oms_agent: 'oms_agent',
-    dockerhub_proxy: 'dockerhub_proxy',
-  };
+  const isDirty = Object.keys(FLAG_LABELS).some((k) => draft[k] !== flags[k]);
 
-  const toggle = async (key: string) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!canUpdate || pending) return;
-    const next = { ...flags, [key]: !flags[key] };
     setPending(true);
     try {
-      const resp = await driverPost(`${basePath}/api/v1alpha/configure-feature-flags`, csrfToken, next);
+      const resp = await driverPost(`${basePath}/api/v1alpha/configure-feature-flags`, csrfToken, draft);
       if (resp.ok) {
         const data = (await resp.json()) as { feature_flags: FeatureFlags };
         onUpdated(data.feature_flags);
+        setDraft({ ...data.feature_flags });
       }
     } finally {
       setPending(false);
     }
   };
 
+  if (!canUpdate) {
+    return (
+      <div className="ml-4">
+        {Object.entries(FLAG_LABELS).map(([key, label]) => (
+          <span key={key} className="mr-4">{label}: {String(flags[key] ?? false)}</span>
+        ))}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-wrap gap-4">
+    <form onSubmit={(e) => { void handleSubmit(e); }}>
       {Object.entries(FLAG_LABELS).map(([key, label]) => (
-        <label
-          key={key}
-          className={`flex items-center gap-2 text-sm ${canUpdate ? 'cursor-pointer' : 'cursor-default'}`}
-        >
+        <label key={key} className="mr-4">
           <input
             type="checkbox"
-            checked={flags[key] ?? false}
-            onChange={() => { void toggle(key); }}
-            disabled={!canUpdate || pending}
-            className="h-4 w-4 rounded text-sky-600"
+            name={key}
+            checked={draft[key] ?? false}
+            onChange={(e) => setDraft((prev) => ({ ...prev, [key]: e.target.checked }))}
+            disabled={pending}
           />
-          <span>{label}</span>
+          {' '}{label}
         </label>
       ))}
-    </div>
+      <button
+        type="submit"
+        disabled={pending || !isDirty}
+        title={isDirty ? undefined : 'No changes to apply'}
+        className="border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        Update
+      </button>
+    </form>
   );
 }
+
+const REFRESH_INTERVAL_MS = 30_000;
 
 interface Props {
   basePath: string;
@@ -261,9 +274,20 @@ interface Props {
 
 export function IndexPage({ basePath, csrfToken, permissions }: Props): JSX.Element {
   const canUpdate = permissions['update_deployed_system_state'] === true;
-  const { data, error, loading, refresh } = usePolling<DriverInfo>(`${basePath}/api/v1alpha/driver_info`);
 
-  // feature flags can be optimistically updated
+  const [autoRefresh, setAutoRefreshState] = useState<boolean>(() => {
+    try { return localStorage.getItem('batch.driverPage.autoRefresh') !== 'false'; } catch { return true; }
+  });
+  const setAutoRefresh = (v: boolean) => {
+    setAutoRefreshState(v);
+    try { localStorage.setItem('batch.driverPage.autoRefresh', String(v)); } catch { /* ignore */ }
+  };
+
+  const { data, error, loading, refreshing, countdownKey, refresh } = usePolling<DriverInfo>(
+    `${basePath}/api/v1alpha/driver_info`,
+    autoRefresh ? REFRESH_INTERVAL_MS : null,
+  );
+
   const [localFlags, setLocalFlags] = useState<FeatureFlags | null>(null);
   const flags = localFlags ?? data?.feature_flags ?? null;
 
@@ -294,87 +318,77 @@ export function IndexPage({ basePath, csrfToken, permissions }: Props): JSX.Elem
   if (loading) {
     return (
       <div className="flex items-center justify-center mt-24">
-        <span className="text-5xl font-light text-sky-600">Loading…</span>
+        <span className="text-3xl font-light text-sky-600">Loading…</span>
       </div>
     );
   }
 
   if (error || !data) {
-    return <div className="mt-8 text-red-600">Error loading driver info: {error ?? 'unknown error'}</div>;
+    return <div className="mt-8 font-light text-red-600">Error loading driver info: {error ?? 'unknown error'}</div>;
   }
 
-  const frozen = data.frozen;
+  const frozen = Boolean(data.frozen);
 
   return (
-    <div className="pb-8 space-y-8">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-light text-zinc-800">Batch Driver</h1>
-        <button
-          onClick={() => { document.cookie = 'hail_react_ui=; max-age=0; path=/; SameSite=Lax'; location.reload(); }}
-          className="text-sm text-sky-600 hover:underline"
-        >
-          Back to classic layout
-        </button>
+    <div className="flex-col m-auto w-full space-y-4">
+      <div className="mb-4">
+        <div>
+          <button
+            onClick={() => { document.cookie = 'hail_react_ui=; max-age=0; path=/; SameSite=Lax'; location.reload(); }}
+            className="text-sky-600 hover:underline"
+            style={{ fontSize: '0.85em' }}
+          >
+            Back to classic layout
+          </button>
+        </div>
+        <div style={{ width: '33%' }}>
+          <AutoRefresher
+            autoRefresh={autoRefresh}
+            onToggle={setAutoRefresh}
+            refreshing={refreshing}
+            countdownKey={countdownKey}
+            intervalMs={REFRESH_INTERVAL_MS}
+            trackColor="#cbd5e1"
+          />
+        </div>
       </div>
 
-      {/* Frozen banner */}
-      {frozen && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 flex items-center gap-3">
-          <span className="text-red-600 font-semibold">⚠ Batch is frozen</span>
-          <span className="text-red-500 text-sm">All instance collections and batch submissions are paused.</span>
-        </div>
-      )}
-
-      {/* Globals */}
       <section>
-        <h2 className="text-lg font-medium text-zinc-700 mb-3">Globals</h2>
-        <div className="flex flex-wrap gap-6 text-sm">
+        <h1 className="text-2xl font-light">Globals</h1>
+        <div className="ml-4">
+          <div>instance ID: {data.instance_id}</div>
+          <div>ready cores: {cores(data.ready_cores_mcpu)}</div>
+          <div>frozen: {String(frozen)}</div>
+        </div>
+        {canUpdate && (
           <div>
-            <span className="text-zinc-500">Instance ID</span>
-            <p className="font-mono mt-0.5">{data.instance_id}</p>
-          </div>
-          <div>
-            <span className="text-zinc-500">Ready Cores</span>
-            <p className="font-semibold mt-0.5">{cores(data.ready_cores_mcpu)}</p>
-          </div>
-          <div>
-            <span className="text-zinc-500">Status</span>
-            <p className="mt-0.5">
-              {frozen ? (
-                <span className="text-red-600 font-semibold">Frozen</span>
-              ) : (
-                <span className="text-emerald-700 font-semibold">Running</span>
-              )}
-            </p>
-          </div>
-          {canUpdate && (
-            <div className="flex items-end">
-              {frozen ? (
+            {frozen ? (
+              <form onSubmit={(e) => { e.preventDefault(); void handleUnfreeze(); }}>
                 <button
-                  onClick={() => { void handleUnfreeze(); }}
+                  type="submit"
                   disabled={actionPending}
-                  className="px-4 py-1.5 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+                  className="border border-gray-200 bg-gray-50 hover:bg-slate-400 hover:text-white px-2 py-1 rounded-md"
                 >
                   Unfreeze
                 </button>
-              ) : (
+              </form>
+            ) : (
+              <form onSubmit={(e) => { e.preventDefault(); void handleFreeze(); }}>
                 <button
-                  onClick={() => { void handleFreeze(); }}
+                  type="submit"
                   disabled={actionPending}
-                  className="px-4 py-1.5 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                  className="border border-gray-200 bg-gray-50 hover:bg-red-700 text-red-500 hover:text-white px-2 py-1 rounded-md"
                 >
                   Freeze
                 </button>
-              )}
-            </div>
-          )}
-        </div>
+              </form>
+            )}
+          </div>
+        )}
       </section>
 
-      {/* Feature Flags */}
       <section>
-        <h2 className="text-lg font-medium text-zinc-700 mb-3">Feature Flags</h2>
+        <h1 className="text-2xl font-light">Feature Flags</h1>
         {flags && (
           <FeatureFlagsPanel
             flags={flags}
@@ -386,9 +400,8 @@ export function IndexPage({ basePath, csrfToken, permissions }: Props): JSX.Elem
         )}
       </section>
 
-      {/* Instance Collections */}
       <section>
-        <h2 className="text-lg font-medium text-zinc-700 mb-3">Instance Collections</h2>
+        <h1 className="text-2xl font-light">Instance Collections</h1>
         <InstanceCollectionsTable
           pools={data.pools}
           jpim={data.jpim}
@@ -397,11 +410,8 @@ export function IndexPage({ basePath, csrfToken, permissions }: Props): JSX.Elem
         />
       </section>
 
-      {/* Instances */}
       <section>
-        <h2 className="text-lg font-medium text-zinc-700 mb-3">
-          Instances <span className="text-zinc-400 text-base font-normal">({data.instances.length})</span>
-        </h2>
+        <h1 className="text-2xl font-light">Instances</h1>
         <InstancesTable instances={data.instances} />
       </section>
     </div>
