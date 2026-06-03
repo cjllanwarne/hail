@@ -212,7 +212,11 @@ monitoring/monitoring/static/compiled-js/index.js: services/ui/dist/.built
 	mkdir -p $(@D)
 	cp services/ui/dist/monitoring/index.js $@
 
-monitoring-image: monitoring/monitoring/static/compiled-js/index.js
+monitoring/monitoring/static/compiled-js/cost_analysis.js: services/ui/dist/.built
+	mkdir -p $(@D)
+	cp services/ui/dist/monitoring/cost_analysis.js $@
+
+monitoring-image: monitoring/monitoring/static/compiled-js/index.js monitoring/monitoring/static/compiled-js/cost_analysis.js
 
 auth/auth/static/compiled-js/index.js: services/ui/dist/.built
 	mkdir -p $(@D)
@@ -287,8 +291,9 @@ run-dev-proxy: ci/ci/static/compiled-js/flaky_tests.js \
     batch/batch/front_end/static/compiled-js/job.js \
     batch/batch/driver/static/compiled-js/index.js \
     monitoring/monitoring/static/compiled-js/index.js \
+    monitoring/monitoring/static/compiled-js/cost_analysis.js \
     auth/auth/static/compiled-js/index.js
-DEVSERVER_TARGETS = tailwind-compile-watch run-dev-proxy ui-js-watch ui-js-watch-batch ui-js-watch-batch-driver ui-js-watch-monitoring ui-js-watch-auth
+DEVSERVER_TARGETS = tailwind-compile-watch run-dev-proxy ui-js-watch ui-js-watch-batch ui-js-watch-batch-driver ui-js-watch-monitoring ui-js-watch-monitoring-cost-analysis ui-js-watch-auth
 
 .PHONY: run-dev-proxy
 run-dev-proxy:
@@ -312,6 +317,10 @@ ui-js-watch-batch-driver: services/ui/node_modules/.package-lock.json
 .PHONY: ui-js-watch-monitoring
 ui-js-watch-monitoring: services/ui/node_modules/.package-lock.json
 	cd services/ui && npx esbuild src/monitoring/index.tsx --bundle --jsx=automatic --format=esm --outfile=../../monitoring/monitoring/static/compiled-js/index.js --minify --watch=forever
+
+.PHONY: ui-js-watch-monitoring-cost-analysis
+ui-js-watch-monitoring-cost-analysis: services/ui/node_modules/.package-lock.json
+	cd services/ui && npx esbuild src/monitoring/cost_analysis.tsx --bundle --jsx=automatic --format=esm --outfile=../../monitoring/monitoring/static/compiled-js/cost_analysis.js --minify --watch=forever
 
 .PHONY: ui-js-watch-auth
 ui-js-watch-auth: services/ui/node_modules/.package-lock.json

@@ -76,7 +76,8 @@ def _backend_url(service: str, raw_path: str) -> str:
 # Pages served from local templates (React shell with client-side data fetching).
 # Paths include the service prefix that matches the new URL model.
 _LOCAL_REACT_ROUTES: list[tuple[str, str, str, str]] = [
-    ('monitoring',   'GET', '/monitoring/helloreact', 'hello_react.html'),
+    ('monitoring',   'GET', '/monitoring/helloreact',    'hello_react.html'),
+    ('monitoring',   'GET', '/monitoring/cost-analysis', 'cost_analysis.html'),
     ('auth',         'GET', '/auth/helloreact', 'hello_react.html'),
     ('batch-driver', 'GET', '/batch-driver/helloreact', 'hello_react.html'),
     ('ci',           'GET', '/ci/flaky_tests', 'flaky_tests.html'),
