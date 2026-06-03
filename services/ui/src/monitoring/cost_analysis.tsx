@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { createRoot } from 'react-dom/client';
 
 // --- Types ---
 
@@ -151,7 +150,7 @@ function RatioRow({ label, value }: { label: string; value: string }) {
 
 interface CostAnalysisProps { monitoringBaseUrl: string; batchBaseUrl: string }
 
-function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisProps) {
+export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisProps) {
   const [timePeriod, setTimePeriod] = useState(currentMonthParam());
   const [cloudCosts, setCloudCosts] = useState<CloudCosts | null>(null);
   const [userBilling, setUserBilling] = useState<UserBilling | null>(null);
@@ -269,11 +268,4 @@ function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisProps) {
       )}
     </div>
   );
-}
-
-const el = document.getElementById('cost-analysis-root');
-if (el) {
-  const monitoringBaseUrl = el.dataset.monitoringBaseUrl ?? '';
-  const batchBaseUrl = el.dataset.batchBaseUrl ?? '';
-  createRoot(el).render(<CostAnalysis monitoringBaseUrl={monitoringBaseUrl} batchBaseUrl={batchBaseUrl} />);
 }
