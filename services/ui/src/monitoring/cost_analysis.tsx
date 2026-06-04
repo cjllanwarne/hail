@@ -34,6 +34,7 @@ interface UserBilling {
   total: number;
   resource_cost: number;
   service_fee_cost: number;
+  resource_by_type: Record<string, number>;
 }
 
 interface MonthDataPoint {
@@ -50,6 +51,7 @@ interface MonthDataPoint {
   k8s_mgmt: number;
   non_compute_services: Record<string, number>;
   user_compute_by_product: Record<string, number>;
+  resource_by_type: Record<string, number>;
   user_billing: number;
   service_fees: number;
   resource_cost: number;
@@ -168,11 +170,20 @@ async function fetchUserBilling(batchBaseUrl: string, period: string): Promise<U
 
   let total = 0;
   let service_fee_cost = 0;
+  const resource_by_type: Record<string, number> = {};
   for (const row of rows) {
     total += row.cost;
-    if (row.resource.startsWith('service-fee')) service_fee_cost += row.cost;
+    if (row.resource.startsWith('service-fee')) {
+      service_fee_cost += row.cost;
+    } else {
+      const lastSlash = row.resource.lastIndexOf('/');
+      const key = lastSlash !== -1 && /^\d+$/.test(row.resource.slice(lastSlash + 1))
+        ? row.resource.slice(0, lastSlash)
+        : row.resource;
+      resource_by_type[key] = (resource_by_type[key] ?? 0) + row.cost;
+    }
   }
-  return { total, resource_cost: total - service_fee_cost, service_fee_cost };
+  return { total, resource_cost: total - service_fee_cost, service_fee_cost, resource_by_type };
 }
 
 // --- Components ---
@@ -396,6 +407,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     window.history.replaceState(null, '', url.toString());
   }, []);
   const [cloudView, setCloudView] = useState<'summary' | 'user_compute' | 'other_compute' | 'k8s' | 'other_overhead'>('summary');
+  const [billingView, setBillingView] = useState<'summary' | 'resource_usage'>('summary');
   const cloudCostsToggle = useLegendToggle(['user_compute', 'other_compute', 'k8s', 'other_overhead'] as const);
   const otherComputeToggle = useLegendToggle(['batch_test', 'batch_dev', 'unknown'] as const);
   const k8sToggle = useLegendToggle(['k8s_nodes', 'k8s_mgmt'] as const);
@@ -418,6 +430,38 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     if (cloudCosts) Object.keys(cloudCosts.non_compute_services).forEach(s => seen.add(s));
     return Array.from(seen).sort();
   }, [trendData, cloudCosts]);
+
+  const { billingResources, billingResourcesHasOther } = useMemo(() => {
+    const maxes: Record<string, number> = {};
+    for (const d of trendData) {
+      for (const [r, v] of Object.entries(d.resource_by_type)) maxes[r] = Math.max(maxes[r] ?? 0, v);
+    }
+    if (userBilling) {
+      for (const [r, v] of Object.entries(userBilling.resource_by_type)) maxes[r] = Math.max(maxes[r] ?? 0, v);
+    }
+    const resources = Object.keys(maxes).filter(r => maxes[r] >= 10).sort();
+    const hasOther = Object.keys(maxes).some(r => maxes[r] < 10);
+    return { billingResources: resources, billingResourcesHasOther: hasOther };
+  }, [trendData, userBilling]);
+
+  const { billingResourcesMonthly, billingResourcesMonthlyHasOther } = useMemo(() => {
+    if (!userBilling) return { billingResourcesMonthly: [] as string[], billingResourcesMonthlyHasOther: false };
+    const resources = Object.entries(userBilling.resource_by_type).filter(([, v]) => v >= 10).sort(([, a], [, b]) => b - a).map(([r]) => r);
+    const hasOther = Object.values(userBilling.resource_by_type).some(v => v < 10);
+    return { billingResourcesMonthly: resources, billingResourcesMonthlyHasOther: hasOther };
+  }, [userBilling]);
+
+  const brOther = useCallback(
+    (byType: Record<string, number>) =>
+      Object.entries(byType).filter(([r]) => !billingResources.includes(r)).reduce((s, [, v]) => s + v, 0),
+    [billingResources]
+  );
+
+  const brOtherMonthly = useCallback(
+    (byType: Record<string, number>) =>
+      Object.entries(byType).filter(([r]) => !billingResourcesMonthly.includes(r)).reduce((s, [, v]) => s + v, 0),
+    [billingResourcesMonthly]
+  );
 
   const { userComputeProducts, userComputeHasOther } = useMemo(() => {
     const maxes: Record<string, number> = {};
@@ -471,6 +515,32 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   );
   const isOverheadHidden = (key: string) => overheadHidden.has(key);
 
+  const BILLING_RESOURCE_PALETTE = ['#10b981', '#059669', '#34d399', '#047857', '#6ee7b7', '#065f46', '#a7f3d0', '#14b8a6', '#0d9488', '#2dd4bf'];
+  const billingResourceColor = (r: string) => r === '(Other)' ? '#9ca3af' : BILLING_RESOURCE_PALETTE[billingResources.indexOf(r) % BILLING_RESOURCE_PALETTE.length];
+
+  const billingResourceAllKeys = useMemo(
+    () => [...billingResources, ...(billingResourcesHasOther ? ['(Other)'] : [])],
+    [billingResources, billingResourcesHasOther]
+  );
+  const [billingResourceHidden, setBillingResourceHidden] = useState<Set<string>>(new Set());
+  const onBillingResourceLegendClick = useCallback(
+    (e: { dataKey?: string | number | ((obj: unknown) => unknown) }, _index: number, event: { shiftKey: boolean }) => {
+      if (typeof e.dataKey !== 'string') return;
+      const key = e.dataKey;
+      if (event.shiftKey) {
+        setBillingResourceHidden(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+      } else {
+        setBillingResourceHidden(prev => {
+          const visible = billingResourceAllKeys.filter(k => !prev.has(k));
+          const isSolo = visible.length === 1 && visible[0] === key;
+          return isSolo ? new Set() : new Set(billingResourceAllKeys.filter(k => k !== key));
+        });
+      }
+    },
+    [billingResourceAllKeys]
+  );
+  const isBillingResourceHidden = (key: string) => billingResourceHidden.has(key);
+
   const USER_COMPUTE_PALETTE = ['#0ea5e9', '#38bdf8', '#7dd3fc', '#bae6fd', '#0284c7', '#0369a1', '#075985', '#0c4a6e', '#22d3ee', '#06b6d4'];
   const userComputeProductColor = (p: string) => p === '(Other)' ? '#9ca3af' : USER_COMPUTE_PALETTE[userComputeProducts.indexOf(p) % USER_COMPUTE_PALETTE.length];
   const userComputeMonthlyProductColor = (p: string) => p === '(Other)' ? '#9ca3af' : USER_COMPUTE_PALETTE[userComputeMonthlyProducts.indexOf(p) % USER_COMPUTE_PALETTE.length];
@@ -522,8 +592,11 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const billingYMax = Math.max(
     0,
     ...trendData.map(d =>
-      (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
-      (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
+      billingView === 'resource_usage'
+        ? billingResources.reduce((s, r) => s + (isBillingResourceHidden(r) ? 0 : (d.resource_by_type[r] ?? 0)), 0) +
+          (billingResourcesHasOther && !isBillingResourceHidden('(Other)') ? brOther(d.resource_by_type) : 0)
+        : (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
+          (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
     ),
   );
 
@@ -572,13 +645,21 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
               other_overhead: computeStats(trendData.map(d => d.other_overhead)),
             };
   const billingStats = computeStats(trendData.map(d =>
-    (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
-    (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
+    billingView === 'resource_usage'
+      ? billingResources.reduce((s, r) => s + (isBillingResourceHidden(r) ? 0 : (d.resource_by_type[r] ?? 0)), 0) +
+        (billingResourcesHasOther && !isBillingResourceHidden('(Other)') ? brOther(d.resource_by_type) : 0)
+      : (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
+        (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
   ));
-  const billingSeriesStats: SeriesStats = {
-    resource_cost: computeStats(trendData.map(d => d.resource_cost)),
-    service_fees: computeStats(trendData.map(d => d.service_fees)),
-  };
+  const billingSeriesStats: SeriesStats = billingView === 'resource_usage'
+    ? {
+        ...Object.fromEntries(billingResources.map(r => [r, computeStats(trendData.map(d => d.resource_by_type[r] ?? 0))])),
+        ...(billingResourcesHasOther ? { '(Other)': computeStats(trendData.map(d => brOther(d.resource_by_type))) } : {}),
+      }
+    : {
+        resource_cost: computeStats(trendData.map(d => d.resource_cost)),
+        service_fees: computeStats(trendData.map(d => d.service_fees)),
+      };
   const profitStats = computeStats(trendData.map(d => d.profit));
   const soloRatioKeys = RATIO_KEYS.filter(k => !ratiosToggle.isHidden(k));
   const ratioStats = soloRatioKeys.length === 1
@@ -643,6 +724,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           k8s_mgmt: c?.k8s_mgmt ?? 0,
           non_compute_services: c?.non_compute_services ?? {},
           user_compute_by_product: c?.user_compute_by_product ?? {},
+          resource_by_type: b?.resource_by_type ?? {},
           user_billing: b?.total ?? 0,
           service_fees: b?.service_fee_cost ?? 0,
           resource_cost: b?.resource_cost ?? 0,
@@ -793,21 +875,49 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             ) : !loading && <p className="text-zinc-400 text-sm py-2">No data for {timePeriod}.</p>}
           </Panel>
 
-          <Panel title="User Billing">
+          <Panel title="User Billing" viewSelector={
+            <select
+              className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
+              value={billingView}
+              onChange={e => setBillingView(e.target.value as typeof billingView)}
+            >
+              <option value="summary">Summary</option>
+              <option value="resource_usage">Resource usage</option>
+            </select>
+          }>
             {billingError ? (
               <p className="text-amber-600 text-sm py-2">{billingError}</p>
             ) : userBilling ? (
               <div className="flex items-center gap-4">
                 <div className="flex-1">
-                  <CostRow label="Resource usage" value={userBilling.resource_cost} pctStr={pct(userBilling.resource_cost, userBilling.total)} />
-                  <CostRow label="Service fees" value={userBilling.service_fee_cost} pctStr={pct(userBilling.service_fee_cost, userBilling.total)} />
-                  <CostRow label="Total" value={userBilling.total} bold />
+                  {billingView === 'summary' ? (
+                    <>
+                      <CostRow label="Resource usage" value={userBilling.resource_cost} pctStr={pct(userBilling.resource_cost, userBilling.total)} />
+                      <CostRow label="Service fees" value={userBilling.service_fee_cost} pctStr={pct(userBilling.service_fee_cost, userBilling.total)} />
+                      <CostRow label="Total" value={userBilling.total} bold />
+                    </>
+                  ) : (
+                    <>
+                      {billingResourcesMonthly.map(r => (
+                        <CostRow key={r} label={r} value={userBilling.resource_by_type[r] ?? 0} pctStr={pct(userBilling.resource_by_type[r] ?? 0, userBilling.resource_cost)} indent />
+                      ))}
+                      {billingResourcesMonthlyHasOther && (() => { const v = brOtherMonthly(userBilling.resource_by_type); return v > 0 ? <CostRow label="(Other)" value={v} pctStr={pct(v, userBilling.resource_cost)} indent /> : null; })()}
+                      <CostRow label="Resource usage total" value={userBilling.resource_cost} bold />
+                    </>
+                  )}
                 </div>
                 <div className="w-40 flex-shrink-0">
-                  <MiniPieChart data={[
-                    { name: 'Resource usage', value: userBilling.resource_cost, fill: '#10b981' },
-                    { name: 'Service fees', value: userBilling.service_fee_cost, fill: '#6ee7b7' },
-                  ]} />
+                  {billingView === 'summary' ? (
+                    <MiniPieChart data={[
+                      { name: 'Resource usage', value: userBilling.resource_cost, fill: '#10b981' },
+                      { name: 'Service fees', value: userBilling.service_fee_cost, fill: '#6ee7b7' },
+                    ]} />
+                  ) : (
+                    <MiniPieChart data={[
+                      ...billingResourcesMonthly.map(r => ({ name: r, value: userBilling.resource_by_type[r] ?? 0, fill: billingResourceColor(r) })),
+                      ...(billingResourcesMonthlyHasOther ? [{ name: '(Other)', value: brOtherMonthly(userBilling.resource_by_type), fill: '#9ca3af' }] : []),
+                    ]} />
+                  )}
                 </div>
               </div>
             ) : !loading && <p className="text-zinc-400 text-sm py-2">No data for {timePeriod}.</p>}
@@ -915,17 +1025,44 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             </Panel>
 
             <div className="h-10" />
-            <Panel title="Billing Charges" collapsible>
+            <Panel title="Billing Charges" collapsible viewSelector={
+              <select
+                className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                value={billingView}
+                onChange={e => setBillingView(e.target.value as typeof billingView)}
+              >
+                <option value="summary">Summary</option>
+                <option value="resource_usage">Resource usage</option>
+              </select>
+            }>
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <BarChart
+                  data={(billingView === 'resource_usage'
+                    ? trendData.map(d => ({ month: d.month, ...Object.fromEntries(billingResources.map(r => [r, d.resource_by_type[r] ?? 0])), ...(billingResourcesHasOther ? { '(Other)': brOther(d.resource_by_type) } : {}) }))
+                    : trendData) as MonthDataPoint[]}
+                  margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={makeYDollarFormatter(billingYMax)} tick={{ fontSize: 11 }} width={56} domain={[0, billingYMax]} />
                   <Tooltip content={(p) => <ChartTooltip {...p} stats={billingStats} seriesStats={billingSeriesStats} format={fmt} stacked />} />
-                  <Legend onClick={billingToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                  {statsReferenceLines(billingStats, 0, billingYMax)}
-                  <Bar dataKey="resource_cost" name="Resource charges" stackId="a" fill="#10b981" hide={billingToggle.isHidden('resource_cost')} />
-                  <Bar dataKey="service_fees" name="Service fees" stackId="a" fill="#6ee7b7" hide={billingToggle.isHidden('service_fees')} />
+                  {billingView === 'summary' ? (
+                    <>
+                      <Legend onClick={billingToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                      {statsReferenceLines(billingStats, 0, billingYMax)}
+                      <Bar dataKey="resource_cost" name="Resource charges" stackId="a" fill="#10b981" hide={billingToggle.isHidden('resource_cost')} />
+                      <Bar dataKey="service_fees" name="Service fees" stackId="a" fill="#6ee7b7" hide={billingToggle.isHidden('service_fees')} />
+                    </>
+                  ) : (
+                    <>
+                      <Legend onClick={onBillingResourceLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                      {statsReferenceLines(billingStats, 0, billingYMax)}
+                      {billingResources.map(r => (
+                        <Bar key={r} dataKey={r} name={r} stackId="a" fill={billingResourceColor(r)} hide={isBillingResourceHidden(r)} />
+                      ))}
+                      {billingResourcesHasOther && <Bar dataKey="(Other)" name="(Other)" stackId="a" fill="#9ca3af" hide={isBillingResourceHidden('(Other)')} />}
+                    </>
+                  )}
                 </BarChart>
               </ResponsiveContainer>
               <StatsDisplay stats={billingStats} format={fmt} />
