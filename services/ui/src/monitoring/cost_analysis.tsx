@@ -179,18 +179,30 @@ function MiniPieChart({ data }: { data: PieSlice[] }) {
 
 // --- Legend toggle hook ---
 
-function useLegendToggle() {
+function useLegendToggle(allKeys: readonly string[]) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const onLegendClick = useCallback((e: { dataKey?: string | number | ((obj: unknown) => unknown) }) => {
-    if (typeof e.dataKey !== 'string') return;
-    const key = e.dataKey;
-    setHidden(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  const onLegendClick = useCallback(
+    (e: { dataKey?: string | number | ((obj: unknown) => unknown) }, _index: number, event: { shiftKey: boolean }) => {
+      if (typeof e.dataKey !== 'string') return;
+      const key = e.dataKey;
+      if (event.shiftKey) {
+        // shift-click: toggle this series on/off
+        setHidden(prev => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key); else next.add(key);
+          return next;
+        });
+      } else {
+        // click: solo this series (or restore all if already soloed)
+        setHidden(prev => {
+          const visible = allKeys.filter(k => !prev.has(k));
+          const isSolo = visible.length === 1 && visible[0] === key;
+          return isSolo ? new Set() : new Set(allKeys.filter(k => k !== key));
+        });
+      }
+    },
+    [allKeys]
+  );
   const isHidden = (key: string) => hidden.has(key);
   return { onLegendClick, isHidden };
 }
@@ -200,9 +212,20 @@ function useLegendToggle() {
 interface CostAnalysisProps { monitoringBaseUrl: string; batchBaseUrl: string }
 
 export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisProps) {
-  const [tab, setTab] = useState<'monthly' | 'trends'>('monthly');
-  const costsToggle = useLegendToggle();
-  const ratiosToggle = useLegendToggle();
+  const [tab, setTab] = useState<'monthly' | 'trends'>(() => {
+    const p = new URLSearchParams(window.location.search).get('tab');
+    return p === 'trends' ? 'trends' : 'monthly';
+  });
+
+  const changeTab = useCallback((t: 'monthly' | 'trends') => {
+    setTab(t);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', t);
+    window.history.replaceState(null, '', url.toString());
+  }, []);
+  const cloudCostsToggle = useLegendToggle(['user_compute', 'other_compute', 'other_overhead'] as const);
+  const billingToggle = useLegendToggle(['resource_cost', 'service_fees'] as const);
+  const ratiosToggle = useLegendToggle(['svc_fee_overhead_pct', 'resource_billing_pct', 'svc_fee_bill_pct', 'overhead_cloud_pct', 'overhead_resource_pct'] as const);
   const [timePeriod, setTimePeriod] = useState(currentMonthParam());
   const [cloudCosts, setCloudCosts] = useState<CloudCosts | null>(null);
   const [userBilling, setUserBilling] = useState<UserBilling | null>(null);
@@ -212,6 +235,12 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
 
   const [trendData, setTrendData] = useState<MonthDataPoint[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(false);
+
+  const sharedYMax = Math.max(
+    0,
+    ...trendData.map(d => d.user_compute + d.other_compute + d.other_overhead),
+    ...trendData.map(d => d.resource_cost + d.service_fees),
+  );
 
   const fetchData = useCallback(async (period: string) => {
     setLoading(true);
@@ -285,12 +314,12 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
       : 'border-transparent text-zinc-500 hover:text-zinc-700'}`;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+    <div className="px-4 py-6 space-y-6">
       <h1 className="text-2xl font-light text-zinc-800">Cost Analysis</h1>
 
       <div className="flex border-b border-zinc-200">
-        <button className={tabClass('monthly')} onClick={() => setTab('monthly')}>Monthly Breakdown</button>
-        <button className={tabClass('trends')} onClick={() => setTab('trends')}>Trends</button>
+        <button className={tabClass('monthly')} onClick={() => changeTab('monthly')}>Monthly Breakdown</button>
+        <button className={tabClass('trends')} onClick={() => changeTab('trends')}>Trends</button>
       </div>
 
       {tab === 'monthly' && (
@@ -377,28 +406,54 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
         trendsLoading ? (
           <p className="text-zinc-400 text-sm py-4 text-center animate-pulse">Loading…</p>
         ) : (
-          <div className="space-y-6">
-            <Panel title="Costs">
-              <ResponsiveContainer width="100%" height={280}>
+          <div>
+            <Panel title="Cloud Costs">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, sharedYMax]} />
+                  <Tooltip formatter={(v) => typeof v === 'number' ? fmt(v) : ''} />
+                  <Legend onClick={cloudCostsToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                  <Bar dataKey="user_compute" name="User-driven compute" stackId="a" fill="#0ea5e9" hide={cloudCostsToggle.isHidden('user_compute')} />
+                  <Bar dataKey="other_compute" name="Other compute" stackId="a" fill="#7dd3fc" hide={cloudCostsToggle.isHidden('other_compute')} />
+                  <Bar dataKey="other_overhead" name="Other overhead" stackId="a" fill="#bae6fd" hide={cloudCostsToggle.isHidden('other_overhead')} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Panel>
+
+            <div className="h-10" />
+            <Panel title="Billing Charges">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, sharedYMax]} />
+                  <Tooltip formatter={(v) => typeof v === 'number' ? fmt(v) : ''} />
+                  <Legend onClick={billingToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                  <Bar dataKey="resource_cost" name="Resource charges" stackId="a" fill="#10b981" hide={billingToggle.isHidden('resource_cost')} />
+                  <Bar dataKey="service_fees" name="Service fees" stackId="a" fill="#6ee7b7" hide={billingToggle.isHidden('service_fees')} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Panel>
+
+            <div className="h-10" />
+            <Panel title="Profit">
+              <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} />
                   <Tooltip formatter={(v) => typeof v === 'number' ? fmt(v) : ''} />
-                  <Legend onClick={costsToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
                   <ReferenceLine y={0} stroke="#52525b" strokeWidth={1.5} />
-                  <Bar dataKey="user_compute" name="User-driven compute" stackId="costs" fill="#0ea5e9" hide={costsToggle.isHidden('user_compute')} />
-                  <Bar dataKey="other_compute" name="Other compute" stackId="costs" fill="#7dd3fc" hide={costsToggle.isHidden('other_compute')} />
-                  <Bar dataKey="other_overhead" name="Other overhead" stackId="costs" fill="#bae6fd" hide={costsToggle.isHidden('other_overhead')} />
-                  <Bar dataKey="resource_cost" name="Resource charges" stackId="billing" fill="#10b981" hide={costsToggle.isHidden('resource_cost')} />
-                  <Bar dataKey="service_fees" name="Service fees" stackId="billing" fill="#6ee7b7" hide={costsToggle.isHidden('service_fees')} />
-                  <Bar dataKey="profit" name="Profit" hide={costsToggle.isHidden('profit')}>
+                  <Bar dataKey="profit" name="Profit">
                     {trendData.map((d, i) => <Cell key={i} fill={d.profit >= 0 ? '#10b981' : '#ef4444'} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </Panel>
 
+            <div className="h-10" />
             <Panel title="Ratios">
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
@@ -421,6 +476,16 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             </Panel>
           </div>
         )
+      )}
+
+      {tab === 'trends' && (
+        <div className="mt-6 flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          <span className="mt-0.5 shrink-0 text-sky-400">ℹ</span>
+          <span>
+            <strong>Chart legend:</strong> click a series name to isolate it; click again to restore all.
+            Hold <kbd className="rounded border border-sky-300 bg-white px-1 py-0.5 font-mono text-xs">Shift</kbd> and click to toggle a series on or off individually.
+          </span>
+        </div>
       )}
     </div>
   );
