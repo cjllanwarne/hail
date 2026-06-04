@@ -130,15 +130,25 @@ async function fetchUserBilling(batchBaseUrl: string, period: string): Promise<U
 
 // --- Components ---
 
-interface PanelProps { title: string; subtitle?: string; children: React.ReactNode }
-function Panel({ title, subtitle, children }: PanelProps) {
+interface PanelProps { title: string; subtitle?: string; collapsible?: boolean; children: React.ReactNode }
+function Panel({ title, subtitle, collapsible = false, children }: PanelProps) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <div className="bg-white rounded-lg border border-zinc-200 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-zinc-200 bg-zinc-50">
-        <h2 className="text-base font-semibold text-zinc-800">{title}</h2>
-        {subtitle && <p className="text-xs text-zinc-500 mt-0.5">{subtitle}</p>}
+      <div className={`px-5 py-4 bg-zinc-50 flex items-center gap-2 ${!collapsed ? 'border-b border-zinc-200' : ''}`}>
+        {collapsible && (
+          <button onClick={() => setCollapsed(c => !c)} className="p-1 rounded hover:bg-zinc-200 text-zinc-400 transition-colors">
+            <svg className={`w-4 h-4 transition-transform ${collapsed ? '' : 'rotate-90'}`} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M7.293 4.293a1 1 0 011.414 0l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414-1.414L11.586 10 7.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
+        <div>
+          <h2 className="text-base font-semibold text-zinc-800">{title}</h2>
+          {subtitle && <p className="text-xs text-zinc-500 mt-0.5">{subtitle}</p>}
+        </div>
       </div>
-      <div className="px-5 py-3">{children}</div>
+      {!collapsed && <div className="px-5 py-3">{children}</div>}
     </div>
   );
 }
@@ -270,7 +280,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     setTrendsLoading(true);
     const now = new Date();
     const months: string[] = [];
-    for (let i = 11; i >= 0; i--) {
+    for (let i = 12; i >= 1; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       months.push(`${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
     }
@@ -407,7 +417,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           <p className="text-zinc-400 text-sm py-4 text-center animate-pulse">Loading…</p>
         ) : (
           <div>
-            <Panel title="Cloud Costs">
+            <Panel title="Cloud Costs" collapsible>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -423,7 +433,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             </Panel>
 
             <div className="h-10" />
-            <Panel title="Billing Charges">
+            <Panel title="Billing Charges" collapsible>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -438,7 +448,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             </Panel>
 
             <div className="h-10" />
-            <Panel title="Profit">
+            <Panel title="Profit" collapsible>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -454,7 +464,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             </Panel>
 
             <div className="h-10" />
-            <Panel title="Ratios">
+            <Panel title="Ratios" collapsible>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
