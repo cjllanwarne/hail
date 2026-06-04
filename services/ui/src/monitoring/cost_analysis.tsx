@@ -91,6 +91,12 @@ function fmt(dollars: number): string {
   return dollars.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
 }
 
+function makeYDollarFormatter(domainMax: number): (v: number) => string {
+  if (domainMax < 1000) return v => `$${Math.round(v)}`;
+  if (domainMax < 10000) return v => `$${(v / 1000).toFixed(1)}k`;
+  return v => `$${(v / 1000).toFixed(0)}k`;
+}
+
 function pct(numerator: number, denominator: number): string {
   if (denominator === 0) return '—';
   return `${((numerator / denominator) * 100).toFixed(1)}%`;
@@ -452,6 +458,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     ),
   );
 
+  const profitYExtent = Math.max(0, ...trendData.map(d => Math.abs(d.profit)));
+
   const cloudStats = computeStats(trendData.map(d =>
     cloudView === 'other_compute'
       ? (otherComputeToggle.isHidden('batch_test') ? 0 : d.batch_test) +
@@ -750,7 +758,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, cloudYMax]} />
+                  <YAxis tickFormatter={makeYDollarFormatter(cloudYMax)} tick={{ fontSize: 11 }} width={56} domain={[0, cloudYMax]} />
                   <Tooltip content={(p) => <ChartTooltip {...p} stats={cloudStats} seriesStats={cloudSeriesStats} format={fmt} stacked />} />
                   {cloudView === 'summary' ? (
                     <>
@@ -796,7 +804,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, billingYMax]} />
+                  <YAxis tickFormatter={makeYDollarFormatter(billingYMax)} tick={{ fontSize: 11 }} width={56} domain={[0, billingYMax]} />
                   <Tooltip content={(p) => <ChartTooltip {...p} stats={billingStats} seriesStats={billingSeriesStats} format={fmt} stacked />} />
                   <Legend onClick={billingToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
                   {statsReferenceLines(billingStats, 0, billingYMax)}
@@ -813,7 +821,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} />
+                  <YAxis tickFormatter={makeYDollarFormatter(profitYExtent)} tick={{ fontSize: 11 }} width={56} />
                   <Tooltip content={(p) => <ChartTooltip {...p} stats={profitStats} format={fmt} />} />
                   <ReferenceLine y={0} stroke="#52525b" strokeWidth={1.5} />
                   {statsReferenceLines(profitStats, -Infinity, Infinity)}
