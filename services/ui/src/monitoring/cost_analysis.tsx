@@ -222,13 +222,34 @@ function ChartTooltip({ active, payload, label, stats, seriesStats, format, stac
   );
 }
 
+function StatLabel({ label, tooltip }: { label: string; tooltip: string }) {
+  return (
+    <span title={tooltip} className="cursor-help underline decoration-dotted decoration-zinc-400">
+      {label}
+    </span>
+  );
+}
+
 function StatsDisplay({ stats, format }: { stats: { mean: number; std: number } | null; format: (v: number) => string }) {
   if (!stats) return null;
   const { mean, std } = stats;
+  const cv = mean !== 0 ? (std / mean) * 100 : null;
   return (
     <div className="flex gap-6 mt-2 pt-2 border-t border-zinc-100 text-xs tabular-nums text-zinc-500">
-      <span>mean (μ) <span className="text-zinc-700 font-medium">{format(mean)}</span></span>
-      <span>std dev (σ) <span className="text-zinc-700 font-medium">{format(std)}</span></span>
+      <span>
+        <StatLabel label="mean (μ)" tooltip="Average value across all months shown." />
+        {' '}<span className="text-zinc-700 font-medium">{format(mean)}</span>
+      </span>
+      <span>
+        <StatLabel label="std dev (σ)" tooltip="Standard deviation — how much individual months typically deviate from the mean. A higher value means more month-to-month variability." />
+        {' '}<span className="text-zinc-700 font-medium">{format(std)}</span>
+      </span>
+      {cv !== null && (
+        <span>
+          <StatLabel label="CV" tooltip="Coefficient of Variation (σ ÷ μ × 100) — relative variability as a percentage of the mean. Useful for comparing volatility across metrics of different scales. Under ~15% is generally stable; over ~30% suggests high variability." />
+          {' '}<span className="text-zinc-700 font-medium">{cv.toFixed(1)}%</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -606,7 +627,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `${v.toFixed(0)}%`} tick={{ fontSize: 11 }} width={48} domain={['auto', 'auto']} />
+                  <YAxis tickFormatter={v => `${v.toFixed(0)}%`} tick={{ fontSize: 11 }} width={48} domain={[0, 'auto']} />
                   <Tooltip content={(p) => <ChartTooltip {...p} stats={ratioStats} seriesStats={ratioSeriesStats} format={v => `${v.toFixed(1)}%`} />} />
                   <Legend onClick={ratiosToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
                   {statsReferenceLines(ratioStats, -Infinity, Infinity)}
