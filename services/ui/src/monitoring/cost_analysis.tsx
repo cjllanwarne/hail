@@ -21,6 +21,8 @@ interface CloudCosts {
   k8s_mgmt: number;
   // other_overhead sub-breakdown (excludes Kubernetes Engine)
   non_compute_services: Record<string, number>;
+  // user_compute sub-breakdown by SKU product name
+  user_compute_by_product: Record<string, number>;
 }
 
 interface BillingRow {
@@ -47,6 +49,7 @@ interface MonthDataPoint {
   k8s_nodes: number;
   k8s_mgmt: number;
   non_compute_services: Record<string, number>;
+  user_compute_by_product: Record<string, number>;
   user_billing: number;
   service_fees: number;
   resource_cost: number;
@@ -122,8 +125,9 @@ async function fetchCloudCosts(monitoringBaseUrl: string, period: string): Promi
 
   const breakdown: { source: string; cost: string }[] = data['compute_cost_breakdown'] ?? [];
   const byService: { service: string; cost: string }[] = data['cost_by_service'] ?? [];
+  const bySkuLabel: { source: string | null; sku_description: string; cost: string }[] = data['cost_by_sku_label'] ?? [];
 
-  const costs: CloudCosts = { user_compute: 0, other_compute: 0, k8s: 0, other_overhead: 0, total: 0, batch_test: 0, batch_dev: 0, unknown: 0, k8s_nodes: 0, k8s_mgmt: 0, non_compute_services: {} };
+  const costs: CloudCosts = { user_compute: 0, other_compute: 0, k8s: 0, other_overhead: 0, total: 0, batch_test: 0, batch_dev: 0, unknown: 0, k8s_nodes: 0, k8s_mgmt: 0, non_compute_services: {}, user_compute_by_product: {} };
   let computeTotal = 0;
   for (const row of breakdown) {
     const cost = parseCostStr(row.cost);
@@ -142,6 +146,12 @@ async function fetchCloudCosts(monitoringBaseUrl: string, period: string): Promi
     if (row.service === 'Compute Engine') continue;
     if (row.service === GKE_SERVICE_NAME) { costs.k8s_mgmt += cost; costs.k8s += cost; }
     else { costs.non_compute_services[row.service] = (costs.non_compute_services[row.service] ?? 0) + cost; }
+  }
+  for (const row of bySkuLabel) {
+    if (row.source === 'batch-production') {
+      const cost = parseCostStr(row.cost);
+      costs.user_compute_by_product[row.sku_description] = (costs.user_compute_by_product[row.sku_description] ?? 0) + cost;
+    }
   }
   const cloudTotal = byService.reduce((sum, row) => sum + parseCostStr(row.cost), 0);
   costs.other_overhead = Math.max(0, cloudTotal - computeTotal - costs.k8s_mgmt);
@@ -385,7 +395,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     url.searchParams.set('tab', t);
     window.history.replaceState(null, '', url.toString());
   }, []);
-  const [cloudView, setCloudView] = useState<'summary' | 'other_compute' | 'k8s' | 'other_overhead'>('summary');
+  const [cloudView, setCloudView] = useState<'summary' | 'user_compute' | 'other_compute' | 'k8s' | 'other_overhead'>('summary');
   const cloudCostsToggle = useLegendToggle(['user_compute', 'other_compute', 'k8s', 'other_overhead'] as const);
   const otherComputeToggle = useLegendToggle(['batch_test', 'batch_dev', 'unknown'] as const);
   const k8sToggle = useLegendToggle(['k8s_nodes', 'k8s_mgmt'] as const);
@@ -408,6 +418,35 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     if (cloudCosts) Object.keys(cloudCosts.non_compute_services).forEach(s => seen.add(s));
     return Array.from(seen).sort();
   }, [trendData, cloudCosts]);
+
+  const { userComputeProducts, userComputeHasOther } = useMemo(() => {
+    const maxes: Record<string, number> = {};
+    for (const d of trendData) {
+      for (const [p, v] of Object.entries(d.user_compute_by_product)) maxes[p] = Math.max(maxes[p] ?? 0, v);
+    }
+    const products = Object.keys(maxes).filter(p => maxes[p] >= 10).sort();
+    const hasOther = Object.keys(maxes).some(p => maxes[p] < 10);
+    return { userComputeProducts: products, userComputeHasOther: hasOther };
+  }, [trendData]);
+
+  const ucOther = useCallback(
+    (byProduct: Record<string, number>) =>
+      Object.entries(byProduct).filter(([p]) => !userComputeProducts.includes(p)).reduce((s, [, v]) => s + v, 0),
+    [userComputeProducts]
+  );
+
+  const { userComputeMonthlyProducts, userComputeMonthlyHasOther } = useMemo(() => {
+    if (!cloudCosts) return { userComputeMonthlyProducts: [] as string[], userComputeMonthlyHasOther: false };
+    const products = Object.entries(cloudCosts.user_compute_by_product).filter(([, v]) => v >= 10).sort(([, a], [, b]) => b - a).map(([p]) => p);
+    const hasOther = Object.values(cloudCosts.user_compute_by_product).some(v => v < 10);
+    return { userComputeMonthlyProducts: products, userComputeMonthlyHasOther: hasOther };
+  }, [cloudCosts]);
+
+  const ucOtherMonthly = useCallback(
+    (byProduct: Record<string, number>) =>
+      Object.entries(byProduct).filter(([p]) => !userComputeMonthlyProducts.includes(p)).reduce((s, [, v]) => s + v, 0),
+    [userComputeMonthlyProducts]
+  );
 
   const OVERHEAD_PALETTE = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#818cf8', '#4f46e5', '#7c3aed', '#9333ea', '#a855f7', '#c026d3'];
   const overheadServiceColor = (svc: string) => OVERHEAD_PALETTE[overheadServices.indexOf(svc) % OVERHEAD_PALETTE.length];
@@ -432,22 +471,52 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   );
   const isOverheadHidden = (key: string) => overheadHidden.has(key);
 
+  const USER_COMPUTE_PALETTE = ['#0ea5e9', '#38bdf8', '#7dd3fc', '#bae6fd', '#0284c7', '#0369a1', '#075985', '#0c4a6e', '#22d3ee', '#06b6d4'];
+  const userComputeProductColor = (p: string) => p === '(Other)' ? '#9ca3af' : USER_COMPUTE_PALETTE[userComputeProducts.indexOf(p) % USER_COMPUTE_PALETTE.length];
+  const userComputeMonthlyProductColor = (p: string) => p === '(Other)' ? '#9ca3af' : USER_COMPUTE_PALETTE[userComputeMonthlyProducts.indexOf(p) % USER_COMPUTE_PALETTE.length];
+
+  const userComputeAllKeys = useMemo(
+    () => [...userComputeProducts, ...(userComputeHasOther ? ['(Other)'] : [])],
+    [userComputeProducts, userComputeHasOther]
+  );
+  const [userComputeHidden, setUserComputeHidden] = useState<Set<string>>(new Set());
+  const onUserComputeLegendClick = useCallback(
+    (e: { dataKey?: string | number | ((obj: unknown) => unknown) }, _index: number, event: { shiftKey: boolean }) => {
+      if (typeof e.dataKey !== 'string') return;
+      const key = e.dataKey;
+      if (event.shiftKey) {
+        setUserComputeHidden(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+      } else {
+        setUserComputeHidden(prev => {
+          const visible = userComputeAllKeys.filter(k => !prev.has(k));
+          const isSolo = visible.length === 1 && visible[0] === key;
+          return isSolo ? new Set() : new Set(userComputeAllKeys.filter(k => k !== key));
+        });
+      }
+    },
+    [userComputeAllKeys]
+  );
+  const isUserComputeHidden = (key: string) => userComputeHidden.has(key);
+
   const cloudYMax = Math.max(
     0,
     ...trendData.map(d =>
-      cloudView === 'other_compute'
-        ? (otherComputeToggle.isHidden('batch_test') ? 0 : d.batch_test) +
-          (otherComputeToggle.isHidden('batch_dev') ? 0 : d.batch_dev) +
-          (otherComputeToggle.isHidden('unknown') ? 0 : d.unknown)
-        : cloudView === 'k8s'
-          ? (k8sToggle.isHidden('k8s_nodes') ? 0 : d.k8s_nodes) +
-            (k8sToggle.isHidden('k8s_mgmt') ? 0 : d.k8s_mgmt)
-          : cloudView === 'other_overhead'
-            ? overheadServices.reduce((s, svc) => s + (isOverheadHidden(svc) ? 0 : (d.non_compute_services[svc] ?? 0)), 0)
-            : (cloudCostsToggle.isHidden('user_compute') ? 0 : d.user_compute) +
-              (cloudCostsToggle.isHidden('other_compute') ? 0 : d.other_compute) +
-              (cloudCostsToggle.isHidden('k8s') ? 0 : d.k8s) +
-              (cloudCostsToggle.isHidden('other_overhead') ? 0 : d.other_overhead)
+      cloudView === 'user_compute'
+        ? userComputeProducts.reduce((s, p) => s + (isUserComputeHidden(p) ? 0 : (d.user_compute_by_product[p] ?? 0)), 0) +
+          (userComputeHasOther && !isUserComputeHidden('(Other)') ? ucOther(d.user_compute_by_product) : 0)
+        : cloudView === 'other_compute'
+          ? (otherComputeToggle.isHidden('batch_test') ? 0 : d.batch_test) +
+            (otherComputeToggle.isHidden('batch_dev') ? 0 : d.batch_dev) +
+            (otherComputeToggle.isHidden('unknown') ? 0 : d.unknown)
+          : cloudView === 'k8s'
+            ? (k8sToggle.isHidden('k8s_nodes') ? 0 : d.k8s_nodes) +
+              (k8sToggle.isHidden('k8s_mgmt') ? 0 : d.k8s_mgmt)
+            : cloudView === 'other_overhead'
+              ? overheadServices.reduce((s, svc) => s + (isOverheadHidden(svc) ? 0 : (d.non_compute_services[svc] ?? 0)), 0)
+              : (cloudCostsToggle.isHidden('user_compute') ? 0 : d.user_compute) +
+                (cloudCostsToggle.isHidden('other_compute') ? 0 : d.other_compute) +
+                (cloudCostsToggle.isHidden('k8s') ? 0 : d.k8s) +
+                (cloudCostsToggle.isHidden('other_overhead') ? 0 : d.other_overhead)
     ),
   );
   const billingYMax = Math.max(
@@ -461,39 +530,47 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const profitYExtent = Math.max(0, ...trendData.map(d => Math.abs(d.profit)));
 
   const cloudStats = computeStats(trendData.map(d =>
-    cloudView === 'other_compute'
-      ? (otherComputeToggle.isHidden('batch_test') ? 0 : d.batch_test) +
-        (otherComputeToggle.isHidden('batch_dev') ? 0 : d.batch_dev) +
-        (otherComputeToggle.isHidden('unknown') ? 0 : d.unknown)
-      : cloudView === 'k8s'
-        ? (k8sToggle.isHidden('k8s_nodes') ? 0 : d.k8s_nodes) +
-          (k8sToggle.isHidden('k8s_mgmt') ? 0 : d.k8s_mgmt)
-        : cloudView === 'other_overhead'
-          ? overheadServices.reduce((s, svc) => s + (isOverheadHidden(svc) ? 0 : (d.non_compute_services[svc] ?? 0)), 0)
-          : (cloudCostsToggle.isHidden('user_compute') ? 0 : d.user_compute) +
-            (cloudCostsToggle.isHidden('other_compute') ? 0 : d.other_compute) +
-            (cloudCostsToggle.isHidden('k8s') ? 0 : d.k8s) +
-            (cloudCostsToggle.isHidden('other_overhead') ? 0 : d.other_overhead)
+    cloudView === 'user_compute'
+      ? userComputeProducts.reduce((s, p) => s + (isUserComputeHidden(p) ? 0 : (d.user_compute_by_product[p] ?? 0)), 0) +
+        (userComputeHasOther && !isUserComputeHidden('(Other)') ? ucOther(d.user_compute_by_product) : 0)
+      : cloudView === 'other_compute'
+        ? (otherComputeToggle.isHidden('batch_test') ? 0 : d.batch_test) +
+          (otherComputeToggle.isHidden('batch_dev') ? 0 : d.batch_dev) +
+          (otherComputeToggle.isHidden('unknown') ? 0 : d.unknown)
+        : cloudView === 'k8s'
+          ? (k8sToggle.isHidden('k8s_nodes') ? 0 : d.k8s_nodes) +
+            (k8sToggle.isHidden('k8s_mgmt') ? 0 : d.k8s_mgmt)
+          : cloudView === 'other_overhead'
+            ? overheadServices.reduce((s, svc) => s + (isOverheadHidden(svc) ? 0 : (d.non_compute_services[svc] ?? 0)), 0)
+            : (cloudCostsToggle.isHidden('user_compute') ? 0 : d.user_compute) +
+              (cloudCostsToggle.isHidden('other_compute') ? 0 : d.other_compute) +
+              (cloudCostsToggle.isHidden('k8s') ? 0 : d.k8s) +
+              (cloudCostsToggle.isHidden('other_overhead') ? 0 : d.other_overhead)
   ));
-  const cloudSeriesStats: SeriesStats = cloudView === 'other_compute'
+  const cloudSeriesStats: SeriesStats = cloudView === 'user_compute'
     ? {
-        batch_test: computeStats(trendData.map(d => d.batch_test)),
-        batch_dev: computeStats(trendData.map(d => d.batch_dev)),
-        unknown: computeStats(trendData.map(d => d.unknown)),
+        ...Object.fromEntries(userComputeProducts.map(p => [p, computeStats(trendData.map(d => d.user_compute_by_product[p] ?? 0))])),
+        ...(userComputeHasOther ? { '(Other)': computeStats(trendData.map(d => ucOther(d.user_compute_by_product))) } : {}),
       }
-    : cloudView === 'k8s'
+    : cloudView === 'other_compute'
       ? {
-          k8s_nodes: computeStats(trendData.map(d => d.k8s_nodes)),
-          k8s_mgmt: computeStats(trendData.map(d => d.k8s_mgmt)),
+          batch_test: computeStats(trendData.map(d => d.batch_test)),
+          batch_dev: computeStats(trendData.map(d => d.batch_dev)),
+          unknown: computeStats(trendData.map(d => d.unknown)),
         }
-      : cloudView === 'other_overhead'
-        ? Object.fromEntries(overheadServices.map(svc => [svc, computeStats(trendData.map(d => d.non_compute_services[svc] ?? 0))]))
-        : {
-            user_compute: computeStats(trendData.map(d => d.user_compute)),
-            other_compute: computeStats(trendData.map(d => d.other_compute)),
-            k8s: computeStats(trendData.map(d => d.k8s)),
-            other_overhead: computeStats(trendData.map(d => d.other_overhead)),
-          };
+      : cloudView === 'k8s'
+        ? {
+            k8s_nodes: computeStats(trendData.map(d => d.k8s_nodes)),
+            k8s_mgmt: computeStats(trendData.map(d => d.k8s_mgmt)),
+          }
+        : cloudView === 'other_overhead'
+          ? Object.fromEntries(overheadServices.map(svc => [svc, computeStats(trendData.map(d => d.non_compute_services[svc] ?? 0))]))
+          : {
+              user_compute: computeStats(trendData.map(d => d.user_compute)),
+              other_compute: computeStats(trendData.map(d => d.other_compute)),
+              k8s: computeStats(trendData.map(d => d.k8s)),
+              other_overhead: computeStats(trendData.map(d => d.other_overhead)),
+            };
   const billingStats = computeStats(trendData.map(d =>
     (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
     (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
@@ -565,6 +642,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           k8s_nodes: c?.k8s_nodes ?? 0,
           k8s_mgmt: c?.k8s_mgmt ?? 0,
           non_compute_services: c?.non_compute_services ?? {},
+          user_compute_by_product: c?.user_compute_by_product ?? {},
           user_billing: b?.total ?? 0,
           service_fees: b?.service_fee_cost ?? 0,
           resource_cost: b?.resource_cost ?? 0,
@@ -620,6 +698,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
               onChange={e => setCloudView(e.target.value as typeof cloudView)}
             >
               <option value="summary">Summary</option>
+              <option value="user_compute">User-driven compute</option>
               <option value="other_compute">Other compute</option>
               <option value="k8s">K8s</option>
               <option value="other_overhead">Other overhead</option>
@@ -632,28 +711,48 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 <div className="flex-1">
                   {cloudView === 'summary' ? (
                     <>
-                      <CostRow label="User-driven compute" value={cloudCosts.user_compute} pctStr={pct(cloudCosts.user_compute, cloudCosts.total)} />
-                      <CostRow label="Other compute" value={cloudCosts.other_compute} pctStr={pct(cloudCosts.other_compute, cloudCosts.total)} />
-                      <CostRow label="K8s" value={cloudCosts.k8s} pctStr={pct(cloudCosts.k8s, cloudCosts.total)} />
-                      <CostRow label="Other overhead" value={cloudCosts.other_overhead} pctStr={pct(cloudCosts.other_overhead, cloudCosts.total)} />
+                      {([
+                        { label: 'User-driven compute', value: cloudCosts.user_compute },
+                        { label: 'Other compute', value: cloudCosts.other_compute },
+                        { label: 'K8s', value: cloudCosts.k8s },
+                        { label: 'Other overhead', value: cloudCosts.other_overhead },
+                      ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
+                        <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, cloudCosts.total)} />
+                      ))}
                       <CostRow label="Total" value={cloudCosts.total} bold />
+                    </>
+                  ) : cloudView === 'user_compute' ? (
+                    <>
+                      {userComputeMonthlyProducts.map(p => (
+                        <CostRow key={p} label={p} value={cloudCosts.user_compute_by_product[p] ?? 0} pctStr={pct(cloudCosts.user_compute_by_product[p] ?? 0, cloudCosts.user_compute)} indent />
+                      ))}
+                      {userComputeMonthlyHasOther && (() => { const v = ucOtherMonthly(cloudCosts.user_compute_by_product); return v > 0 ? <CostRow label="(Other)" value={v} pctStr={pct(v, cloudCosts.user_compute)} indent /> : null; })()}
+                      <CostRow label="User-driven compute total" value={cloudCosts.user_compute} bold />
                     </>
                   ) : cloudView === 'other_compute' ? (
                     <>
-                      <CostRow label="CI / test batches" value={cloudCosts.batch_test} pctStr={pct(cloudCosts.batch_test, cloudCosts.other_compute)} indent />
-                      <CostRow label="Dev batches" value={cloudCosts.batch_dev} pctStr={pct(cloudCosts.batch_dev, cloudCosts.other_compute)} indent />
-                      <CostRow label="Unknown / unlabeled" value={cloudCosts.unknown} pctStr={pct(cloudCosts.unknown, cloudCosts.other_compute)} indent />
+                      {([
+                        { label: 'CI / test batches', value: cloudCosts.batch_test },
+                        { label: 'Dev batches', value: cloudCosts.batch_dev },
+                        { label: 'Unknown / unlabeled', value: cloudCosts.unknown },
+                      ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
+                        <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, cloudCosts.other_compute)} indent />
+                      ))}
                       <CostRow label="Other compute total" value={cloudCosts.other_compute} bold />
                     </>
                   ) : cloudView === 'k8s' ? (
                     <>
-                      <CostRow label="Compute nodes" value={cloudCosts.k8s_nodes} pctStr={pct(cloudCosts.k8s_nodes, cloudCosts.k8s)} indent />
-                      <CostRow label="Management fee" value={cloudCosts.k8s_mgmt} pctStr={pct(cloudCosts.k8s_mgmt, cloudCosts.k8s)} indent />
+                      {([
+                        { label: 'Compute nodes', value: cloudCosts.k8s_nodes },
+                        { label: 'Management fee', value: cloudCosts.k8s_mgmt },
+                      ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
+                        <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, cloudCosts.k8s)} indent />
+                      ))}
                       <CostRow label="K8s total" value={cloudCosts.k8s} bold />
                     </>
                   ) : (
                     <>
-                      {overheadServices.map(svc => (
+                      {[...overheadServices].sort((a, b) => (cloudCosts.non_compute_services[b] ?? 0) - (cloudCosts.non_compute_services[a] ?? 0)).map(svc => (
                         <CostRow key={svc} label={svc} value={cloudCosts.non_compute_services[svc] ?? 0} pctStr={pct(cloudCosts.non_compute_services[svc] ?? 0, cloudCosts.other_overhead)} indent />
                       ))}
                       <CostRow label="Other overhead total" value={cloudCosts.other_overhead} bold />
@@ -667,6 +766,11 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                       { name: 'Other compute', value: cloudCosts.other_compute, fill: '#f59e0b' },
                       { name: 'K8s', value: cloudCosts.k8s, fill: '#10b981' },
                       { name: 'Other overhead', value: cloudCosts.other_overhead, fill: '#8b5cf6' },
+                    ]} />
+                  ) : cloudView === 'user_compute' ? (
+                    <MiniPieChart data={[
+                      ...userComputeMonthlyProducts.map(p => ({ name: p, value: cloudCosts.user_compute_by_product[p] ?? 0, fill: userComputeMonthlyProductColor(p) })),
+                      ...(userComputeMonthlyHasOther ? [{ name: '(Other)', value: ucOtherMonthly(cloudCosts.user_compute_by_product), fill: '#9ca3af' }] : []),
                     ]} />
                   ) : cloudView === 'other_compute' ? (
                     <MiniPieChart data={[
@@ -744,6 +848,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 onChange={e => setCloudView(e.target.value as typeof cloudView)}
               >
                 <option value="summary">Summary</option>
+                <option value="user_compute">User-driven compute</option>
                 <option value="other_compute">Other compute</option>
                 <option value="k8s">K8s</option>
                 <option value="other_overhead">Other overhead</option>
@@ -751,9 +856,11 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             }>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart
-                  data={cloudView === 'other_overhead'
-                    ? trendData.map(d => ({ month: d.month, ...Object.fromEntries(overheadServices.map(svc => [svc, d.non_compute_services[svc] ?? 0])) }))
-                    : trendData}
+                  data={cloudView === 'user_compute'
+                    ? trendData.map(d => ({ month: d.month, ...Object.fromEntries(userComputeProducts.map(p => [p, d.user_compute_by_product[p] ?? 0])), ...(userComputeHasOther ? { '(Other)': ucOther(d.user_compute_by_product) } : {}) }))
+                    : cloudView === 'other_overhead'
+                      ? trendData.map(d => ({ month: d.month, ...Object.fromEntries(overheadServices.map(svc => [svc, d.non_compute_services[svc] ?? 0])) }))
+                      : trendData}
                   margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -768,6 +875,15 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                       <Bar dataKey="other_compute" name="Other compute" stackId="a" fill="#f59e0b" hide={cloudCostsToggle.isHidden('other_compute')} />
                       <Bar dataKey="k8s" name="K8s" stackId="a" fill="#10b981" hide={cloudCostsToggle.isHidden('k8s')} />
                       <Bar dataKey="other_overhead" name="Other overhead" stackId="a" fill="#8b5cf6" hide={cloudCostsToggle.isHidden('other_overhead')} />
+                    </>
+                  ) : cloudView === 'user_compute' ? (
+                    <>
+                      <Legend onClick={onUserComputeLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                      {statsReferenceLines(cloudStats, 0, cloudYMax)}
+                      {userComputeProducts.map(p => (
+                        <Bar key={p} dataKey={p} name={p} stackId="a" fill={userComputeProductColor(p)} hide={isUserComputeHidden(p)} />
+                      ))}
+                      {userComputeHasOther && <Bar dataKey="(Other)" name="(Other)" stackId="a" fill="#9ca3af" hide={isUserComputeHidden('(Other)')} />}
                     </>
                   ) : cloudView === 'other_compute' ? (
                     <>
