@@ -173,6 +173,99 @@ function RatioRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+type SeriesStats = Record<string, { mean: number; std: number } | null>;
+interface ChartTooltipProps {
+  active?: boolean;
+  payload?: readonly { name?: string | number; value?: number | string | readonly (number | string)[]; dataKey?: string | number | ((obj: unknown) => unknown); color?: string; fill?: string }[];
+  label?: string | number;
+  stats: { mean: number; std: number } | null;
+  seriesStats?: SeriesStats;
+  format: (v: number) => string;
+  stacked?: boolean;
+}
+function ChartTooltip({ active, payload, label, stats, seriesStats, format, stacked = false }: ChartTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const numVal = (v?: number | string | readonly (number | string)[]) => typeof v === 'number' ? v : 0;
+  const sigmaStr = (v: number, s: { mean: number; std: number } | null | undefined) => {
+    if (!s || s.std === 0) return null;
+    const z = (v - s.mean) / s.std;
+    return `μ${z >= 0 ? '+' : '−'}${Math.abs(z).toFixed(1)}σ`;
+  };
+  const total = payload.reduce((s, p) => s + numVal(p.value), 0);
+  const totalSigma = stacked && payload.length > 1 ? sigmaStr(total, stats) : null;
+  return (
+    <div className="bg-white border border-zinc-200 rounded shadow-lg px-3 py-2 text-sm min-w-max">
+      <p className="font-medium text-zinc-700 mb-1">{label}</p>
+      {payload.map((p, i) => {
+        const val = numVal(p.value);
+        const key = typeof p.dataKey === 'string' ? p.dataKey : undefined;
+        const sg = sigmaStr(val, key && seriesStats ? seriesStats[key] : (payload.length === 1 ? stats : null));
+        return (
+          <div key={i} className="flex items-center gap-3 text-xs py-0.5">
+            <span className="flex items-center gap-1 text-zinc-600 flex-1">
+              <span style={{ color: p.fill ?? p.color }}>■</span>
+              {p.name ?? ''}
+            </span>
+            <span className="tabular-nums font-medium text-zinc-800">{format(val)}</span>
+            <span className="tabular-nums text-indigo-400 w-16 text-right">{sg ?? ''}</span>
+          </div>
+        );
+      })}
+      {stacked && payload.length > 1 && (
+        <div className="flex items-center gap-3 text-xs pt-1 mt-0.5 border-t border-zinc-100">
+          <span className="text-zinc-500 font-medium flex-1">Total</span>
+          <span className="tabular-nums font-medium text-zinc-800">{format(total)}</span>
+          <span className="tabular-nums text-indigo-400 w-16 text-right">{totalSigma ?? ''}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatsDisplay({ stats, format }: { stats: { mean: number; std: number } | null; format: (v: number) => string }) {
+  if (!stats) return null;
+  const { mean, std } = stats;
+  return (
+    <div className="flex gap-6 mt-2 pt-2 border-t border-zinc-100 text-xs tabular-nums text-zinc-500">
+      <span>mean (μ) <span className="text-zinc-700 font-medium">{format(mean)}</span></span>
+      <span>std dev (σ) <span className="text-zinc-700 font-medium">{format(std)}</span></span>
+    </div>
+  );
+}
+
+// --- Stats helpers ---
+
+function computeStats(values: number[]): { mean: number; std: number } | null {
+  if (values.length === 0) return null;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const std = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
+  return { mean, std };
+}
+
+function statsReferenceLines(stats: { mean: number; std: number } | null, yMin: number, yMax: number) {
+  if (!stats) return null;
+  const { mean, std } = stats;
+  return [
+    { y: mean - 2 * std, label: 'μ−2σ', solid: false, alpha: 0.35 },
+    { y: mean - std,     label: 'μ−σ',  solid: false, alpha: 0.55 },
+    { y: mean,           label: 'μ',    solid: true,  alpha: 0.8  },
+    { y: mean + std,     label: 'μ+σ',  solid: false, alpha: 0.55 },
+    { y: mean + 2 * std, label: 'μ+2σ', solid: false, alpha: 0.35 },
+  ]
+    .filter(e => e.y >= yMin && e.y <= yMax)
+    .map(e => (
+      <ReferenceLine
+        key={e.label}
+        y={e.y}
+        stroke="#818cf8"
+        strokeOpacity={e.alpha}
+        strokeWidth={e.solid ? 1.5 : 1}
+        strokeDasharray={e.solid ? undefined : '4 3'}
+        label={{ value: e.label, position: 'insideTopRight', fontSize: 9, fill: '#818cf8', fillOpacity: e.alpha }}
+      />
+    ));
+}
+
 interface PieSlice { name: string; value: number; fill: string }
 function MiniPieChart({ data }: { data: PieSlice[] }) {
   return (
@@ -235,7 +328,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   }, []);
   const cloudCostsToggle = useLegendToggle(['user_compute', 'other_compute', 'other_overhead'] as const);
   const billingToggle = useLegendToggle(['resource_cost', 'service_fees'] as const);
-  const ratiosToggle = useLegendToggle(['svc_fee_overhead_pct', 'resource_billing_pct', 'svc_fee_bill_pct', 'overhead_cloud_pct', 'overhead_resource_pct'] as const);
+  const RATIO_KEYS = ['svc_fee_overhead_pct', 'resource_billing_pct', 'svc_fee_bill_pct', 'overhead_cloud_pct', 'overhead_resource_pct'] as const;
+  const ratiosToggle = useLegendToggle(RATIO_KEYS);
   const [timePeriod, setTimePeriod] = useState(currentMonthParam());
   const [cloudCosts, setCloudCosts] = useState<CloudCosts | null>(null);
   const [userBilling, setUserBilling] = useState<UserBilling | null>(null);
@@ -246,10 +340,47 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const [trendData, setTrendData] = useState<MonthDataPoint[]>([]);
   const [trendsLoading, setTrendsLoading] = useState(false);
 
-  const sharedYMax = Math.max(
+  const cloudYMax = Math.max(
     0,
-    ...trendData.map(d => d.user_compute + d.other_compute + d.other_overhead),
-    ...trendData.map(d => d.resource_cost + d.service_fees),
+    ...trendData.map(d =>
+      (cloudCostsToggle.isHidden('user_compute') ? 0 : d.user_compute) +
+      (cloudCostsToggle.isHidden('other_compute') ? 0 : d.other_compute) +
+      (cloudCostsToggle.isHidden('other_overhead') ? 0 : d.other_overhead)
+    ),
+  );
+  const billingYMax = Math.max(
+    0,
+    ...trendData.map(d =>
+      (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
+      (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
+    ),
+  );
+
+  const cloudStats = computeStats(trendData.map(d =>
+    (cloudCostsToggle.isHidden('user_compute') ? 0 : d.user_compute) +
+    (cloudCostsToggle.isHidden('other_compute') ? 0 : d.other_compute) +
+    (cloudCostsToggle.isHidden('other_overhead') ? 0 : d.other_overhead)
+  ));
+  const cloudSeriesStats: SeriesStats = {
+    user_compute: computeStats(trendData.map(d => d.user_compute)),
+    other_compute: computeStats(trendData.map(d => d.other_compute)),
+    other_overhead: computeStats(trendData.map(d => d.other_overhead)),
+  };
+  const billingStats = computeStats(trendData.map(d =>
+    (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
+    (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
+  ));
+  const billingSeriesStats: SeriesStats = {
+    resource_cost: computeStats(trendData.map(d => d.resource_cost)),
+    service_fees: computeStats(trendData.map(d => d.service_fees)),
+  };
+  const profitStats = computeStats(trendData.map(d => d.profit));
+  const soloRatioKeys = RATIO_KEYS.filter(k => !ratiosToggle.isHidden(k));
+  const ratioStats = soloRatioKeys.length === 1
+    ? computeStats(trendData.map(d => d[soloRatioKeys[0]]).filter((v): v is number => v !== null))
+    : null;
+  const ratioSeriesStats: SeriesStats = Object.fromEntries(
+    RATIO_KEYS.map(k => [k, computeStats(trendData.map(d => d[k]).filter((v): v is number => v !== null))])
   );
 
   const fetchData = useCallback(async (period: string) => {
@@ -422,14 +553,16 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, sharedYMax]} />
-                  <Tooltip formatter={(v) => typeof v === 'number' ? fmt(v) : ''} />
+                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, cloudYMax]} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={cloudStats} seriesStats={cloudSeriesStats} format={fmt} stacked />} />
                   <Legend onClick={cloudCostsToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                  {statsReferenceLines(cloudStats, 0, cloudYMax)}
                   <Bar dataKey="user_compute" name="User-driven compute" stackId="a" fill="#0ea5e9" hide={cloudCostsToggle.isHidden('user_compute')} />
                   <Bar dataKey="other_compute" name="Other compute" stackId="a" fill="#7dd3fc" hide={cloudCostsToggle.isHidden('other_compute')} />
                   <Bar dataKey="other_overhead" name="Other overhead" stackId="a" fill="#bae6fd" hide={cloudCostsToggle.isHidden('other_overhead')} />
                 </BarChart>
               </ResponsiveContainer>
+              <StatsDisplay stats={cloudStats} format={fmt} />
             </Panel>
 
             <div className="h-10" />
@@ -438,13 +571,15 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, sharedYMax]} />
-                  <Tooltip formatter={(v) => typeof v === 'number' ? fmt(v) : ''} />
+                  <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} domain={[0, billingYMax]} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={billingStats} seriesStats={billingSeriesStats} format={fmt} stacked />} />
                   <Legend onClick={billingToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                  {statsReferenceLines(billingStats, 0, billingYMax)}
                   <Bar dataKey="resource_cost" name="Resource charges" stackId="a" fill="#10b981" hide={billingToggle.isHidden('resource_cost')} />
                   <Bar dataKey="service_fees" name="Service fees" stackId="a" fill="#6ee7b7" hide={billingToggle.isHidden('service_fees')} />
                 </BarChart>
               </ResponsiveContainer>
+              <StatsDisplay stats={billingStats} format={fmt} />
             </Panel>
 
             <div className="h-10" />
@@ -454,13 +589,15 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} width={56} />
-                  <Tooltip formatter={(v) => typeof v === 'number' ? fmt(v) : ''} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={profitStats} format={fmt} />} />
                   <ReferenceLine y={0} stroke="#52525b" strokeWidth={1.5} />
+                  {statsReferenceLines(profitStats, -Infinity, Infinity)}
                   <Bar dataKey="profit" name="Profit">
                     {trendData.map((d, i) => <Cell key={i} fill={d.profit >= 0 ? '#10b981' : '#ef4444'} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              <StatsDisplay stats={profitStats} format={fmt} />
             </Panel>
 
             <div className="h-10" />
@@ -469,9 +606,10 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={v => `${v.toFixed(0)}%`} tick={{ fontSize: 11 }} width={48} />
-                  <Tooltip formatter={(v) => typeof v === 'number' ? `${v.toFixed(1)}%` : ''} />
+                  <YAxis tickFormatter={v => `${v.toFixed(0)}%`} tick={{ fontSize: 11 }} width={48} domain={['auto', 'auto']} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={ratioStats} seriesStats={ratioSeriesStats} format={v => `${v.toFixed(1)}%`} />} />
                   <Legend onClick={ratiosToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                  {statsReferenceLines(ratioStats, -Infinity, Infinity)}
                   <ReferenceLine y={100} stroke="#52525b" strokeWidth={1.5} />
                   <ReferenceLine y={75} stroke="#d4d4d8" strokeWidth={1} strokeDasharray="4 3" />
                   <ReferenceLine y={50} stroke="#d4d4d8" strokeWidth={1} strokeDasharray="4 3" />
@@ -483,6 +621,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   <Bar dataKey="overhead_resource_pct" name="Overhead as % of user-driven resource costs" fill="#fb923c" hide={ratiosToggle.isHidden('overhead_resource_pct')} />
                 </BarChart>
               </ResponsiveContainer>
+              <StatsDisplay stats={ratioStats} format={v => `${v.toFixed(1)}%`} />
             </Panel>
           </div>
         )
