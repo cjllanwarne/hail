@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ScatterChart, Scatter, ZAxis } from 'recharts';
 
 // --- Types ---
 
@@ -150,6 +150,13 @@ function buildFieldGroups(products: string[], nonComputeServices: string[], reso
         { id: 'billing/service_fees', label: 'User Billing / Service fees' },
       ],
     },
+    {
+      group: 'Margin Analysis',
+      fields: [
+        { id: 'margin/profit', label: 'Margin Analysis / Profit ($)' },
+        { id: 'margin/margin_pct', label: 'Margin Analysis / Margin %' },
+      ],
+    },
   ];
 }
 
@@ -178,6 +185,8 @@ function resolveMonthly(id: string, c: CloudCosts, b: UserBilling): number {
   if (id === 'billing/resource_cost') return b.resource_cost;
   if (id.startsWith('billing/resource/')) return b.resource_by_type[id.slice(17)] ?? 0;
   if (id === 'billing/service_fees') return b.service_fee_cost;
+  if (id === 'margin/profit') return b.total - c.total;
+  if (id === 'margin/margin_pct') return b.total === 0 ? 0 : ((b.total - c.total) / b.total) * 100;
   return 0;
 }
 
@@ -198,6 +207,8 @@ function resolveTrend(id: string, p: MonthDataPoint): number {
   if (id === 'billing/resource_cost') return p.resource_cost;
   if (id.startsWith('billing/resource/')) return (p.resource_by_type ?? {})[id.slice(17)] ?? 0;
   if (id === 'billing/service_fees') return p.service_fees;
+  if (id === 'margin/profit') return p.profit;
+  if (id === 'margin/margin_pct') return p.user_billing === 0 ? 0 : (p.profit / p.user_billing) * 100;
   return 0;
 }
 
@@ -394,13 +405,13 @@ function StatLabel({ label, tooltip }: { label: string; tooltip: string }) {
   );
 }
 
-function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function ToggleSwitch({ checked, onChange, label = '% of total' }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
     <label className="flex items-center gap-1.5 cursor-pointer select-none" onClick={() => onChange(!checked)}>
       <div className={`relative w-8 h-4 rounded-full transition-colors ${checked ? 'bg-sky-500' : 'bg-zinc-300'}`}>
         <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
       </div>
-      <span className="text-xs text-zinc-600">% of total</span>
+      <span className="text-xs text-zinc-600">{label}</span>
     </label>
   );
 }
@@ -436,6 +447,61 @@ function computeStats(values: number[]): { mean: number; std: number } | null {
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const std = Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
   return { mean, std };
+}
+
+interface RegressionResult { slope: number; intercept: number; r2: number }
+
+function computeRegression(points: { x: number; y: number }[]): RegressionResult | null {
+  const n = points.length;
+  if (n < 2) return null;
+  const sumX = points.reduce((s, p) => s + p.x, 0);
+  const sumY = points.reduce((s, p) => s + p.y, 0);
+  const sumXY = points.reduce((s, p) => s + p.x * p.y, 0);
+  const sumX2 = points.reduce((s, p) => s + p.x * p.x, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  if (denom === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  const meanY = sumY / n;
+  const ssTot = points.reduce((s, p) => s + (p.y - meanY) ** 2, 0);
+  const ssRes = points.reduce((s, p) => s + (p.y - (slope * p.x + intercept)) ** 2, 0);
+  const r2 = ssTot === 0 ? 1 : 1 - ssRes / ssTot;
+  return { slope, intercept, r2 };
+}
+
+function RegressionStatsDisplay({ reg, xLabel, yLabel, fmtX, fmtY }: {
+  reg: RegressionResult | null;
+  xLabel: string; yLabel: string;
+  fmtX: (v: number) => string; fmtY: (v: number) => string;
+}) {
+  if (!reg) return null;
+  const slopeTooltip = `For every 1-unit increase in ${xLabel}, ${yLabel} changes by this amount on average.`;
+  const yInterceptTooltip = `Predicted value of ${yLabel} when ${xLabel} is zero.`;
+  const xIntercept = reg.slope !== 0 ? -reg.intercept / reg.slope : null;
+  const xInterceptTooltip = `Value of ${xLabel} at which the regression line predicts ${yLabel} reaches zero.`;
+  const r2Tooltip = 'R² (coefficient of determination) — how well the regression line fits the data. 1.0 = perfect fit; 0 = no linear relationship.';
+  return (
+    <div className="flex gap-6 mt-2 pt-2 border-t border-zinc-100 text-xs tabular-nums text-zinc-500">
+      <span>
+        <StatLabel label="slope" tooltip={slopeTooltip} />
+        {' '}<span className="text-zinc-700 font-medium">{fmtY(reg.slope)}/{fmtX(1).replace('$', '')}</span>
+      </span>
+      <span>
+        <StatLabel label="y-intercept" tooltip={yInterceptTooltip} />
+        {' '}<span className="text-zinc-700 font-medium">{fmtY(reg.intercept)}</span>
+      </span>
+      {xIntercept !== null && (
+        <span>
+          <StatLabel label="x-intercept" tooltip={xInterceptTooltip} />
+          {' '}<span className="text-zinc-700 font-medium">{fmtX(xIntercept)}</span>
+        </span>
+      )}
+      <span>
+        <StatLabel label="R²" tooltip={r2Tooltip} />
+        {' '}<span className="text-zinc-700 font-medium">{reg.r2.toFixed(3)}</span>
+      </span>
+    </div>
+  );
 }
 
 function statsReferenceLines(stats: { mean: number; std: number } | null, yMin: number, yMax: number) {
@@ -554,6 +620,9 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const [trendData, setTrendData] = useState<MonthDataPoint[]>([]);
   const [customRatioNum, setCustomRatioNum] = useState('billing/resource_cost');
   const [customRatioDen, setCustomRatioDen] = useState('cloud/user_compute');
+  const [scatterX, setScatterX] = useState('cloud/user_compute');
+  const [scatterY, setScatterY] = useState('billing/resource_cost');
+  const [showRegression, setShowRegression] = useState(false);
   const [trendsLoading, setTrendsLoading] = useState(false);
 
   const overheadServices = useMemo(() => {
@@ -904,6 +973,21 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     () => trendData.map((d, i) => ({ month: d.month, value: customRatioValues[i] })),
     [trendData, customRatioValues]
   );
+  const scatterChartData = useMemo(
+    () => trendData.map(d => ({ month: d.month, x: resolveTrend(scatterX, d), y: resolveTrend(scatterY, d) })),
+    [trendData, scatterX, scatterY]
+  );
+  const scatterRegression = useMemo(() => computeRegression(scatterChartData), [scatterChartData]);
+  const regressionLineData = useMemo(() => {
+    if (!scatterRegression || scatterChartData.length < 2) return [];
+    const xs = scatterChartData.map(d => d.x);
+    const xMin = Math.min(...xs);
+    const xMax = Math.max(...xs);
+    return [
+      { x: xMin, y: scatterRegression.slope * xMin + scatterRegression.intercept },
+      { x: xMax, y: scatterRegression.slope * xMax + scatterRegression.intercept },
+    ];
+  }, [scatterRegression, scatterChartData]);
 
   const fetchData = useCallback(async (period: string) => {
     setLoading(true);
@@ -1373,6 +1457,108 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 </ResponsiveContainer>
                 <StatsDisplay stats={customRatioStats} format={v => `${v.toFixed(1)}%`} />
               </div>
+            </Panel>
+
+            <div className="h-10" />
+            <Panel title="Scatter Plot" collapsible>
+              <div className="flex items-center gap-2 py-2 flex-wrap">
+                <span className="text-xs text-zinc-500 shrink-0">X axis:</span>
+                <select
+                  className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400 flex-1 min-w-0"
+                  value={scatterX}
+                  onChange={e => setScatterX(e.target.value)}
+                >
+                  {fieldGroups.map(g => (
+                    <optgroup key={g.group} label={g.group}>
+                      {g.fields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                <span className="text-xs text-zinc-500 shrink-0">Y axis:</span>
+                <select
+                  className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400 flex-1 min-w-0"
+                  value={scatterY}
+                  onChange={e => setScatterY(e.target.value)}
+                >
+                  {fieldGroups.map(g => (
+                    <optgroup key={g.group} label={g.group}>
+                      {g.fields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                <ToggleSwitch checked={showRegression} onChange={setShowRegression} label="regression line" />
+              </div>
+              <ResponsiveContainer width="100%" height={320}>
+                <ScatterChart margin={{ top: 16, right: 32, left: 0, bottom: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    type="number"
+                    dataKey="x"
+                    name={fieldLabel(scatterX, fieldGroups)}
+                    tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${Math.round(v)}`}
+                    tick={{ fontSize: 11 }}
+                    label={{ value: fieldLabel(scatterX, fieldGroups), position: 'insideBottom', offset: -8, fontSize: 11, fill: '#71717a' }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="y"
+                    name={fieldLabel(scatterY, fieldGroups)}
+                    tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${Math.round(v)}`}
+                    tick={{ fontSize: 11 }}
+                    width={56}
+                  />
+                  <ZAxis range={[40, 40]} />
+                  <Tooltip
+                    content={({ payload }) => {
+                      if (!payload?.length) return null;
+                      const d = payload[0].payload as { month: string; x: number; y: number };
+                      const fmt = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`;
+                      return (
+                        <div className="rounded border border-zinc-200 bg-white px-3 py-2 text-xs shadow">
+                          <div className="font-semibold text-zinc-700 mb-1">{d.month}</div>
+                          <div className="text-zinc-500">{fieldLabel(scatterX, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmt(d.x)}</span></div>
+                          <div className="text-zinc-500">{fieldLabel(scatterY, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmt(d.y)}</span></div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Scatter
+                    data={scatterChartData}
+                    fill="#0ea5e9"
+                    shape={(props: { cx?: number; cy?: number; payload?: { month: string } }) => {
+                      const { cx = 0, cy = 0, payload } = props;
+                      return (
+                        <g>
+                          <circle cx={cx} cy={cy} r={5} fill="#0ea5e9" fillOpacity={0.85} />
+                          <text x={cx + 7} y={cy + 4} fontSize={10} fill="#52525b">{payload?.month}</text>
+                        </g>
+                      );
+                    }}
+                  />
+                  {showRegression && regressionLineData.length === 2 && (
+                    <Scatter
+                      data={regressionLineData}
+                      line={{ stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '6 3' }}
+                      shape={() => <g />}
+                      legendType="none"
+                      tooltipType="none"
+                      isAnimationActive={false}
+                    />
+                  )}
+                </ScatterChart>
+              </ResponsiveContainer>
+              {(() => {
+                const fmtVal = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`;
+                return (
+                  <RegressionStatsDisplay
+                    reg={scatterRegression}
+                    xLabel={fieldLabel(scatterX, fieldGroups)}
+                    yLabel={fieldLabel(scatterY, fieldGroups)}
+                    fmtX={fmtVal}
+                    fmtY={fmtVal}
+                  />
+                );
+              })()}
             </Panel>
           </div>
         )
