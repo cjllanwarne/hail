@@ -102,6 +102,10 @@ function makeYDollarFormatter(domainMax: number): (v: number) => string {
   return v => `$${(v / 1000).toFixed(0)}k`;
 }
 
+function fmtCoreHours(v: number): string {
+  return Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`;
+}
+
 function pct(numerator: number, denominator: number): string {
   if (denominator === 0) return '—';
   return `${((numerator / denominator) * 100).toFixed(1)}%`;
@@ -157,6 +161,12 @@ function buildFieldGroups(products: string[], nonComputeServices: string[], reso
         { id: 'margin/margin_pct', label: 'Margin Analysis / Margin %' },
       ],
     },
+    {
+      group: 'Usage',
+      fields: [
+        { id: 'derived/core_hours', label: 'Usage / Core hours' },
+      ],
+    },
   ];
 }
 
@@ -187,6 +197,7 @@ function resolveMonthly(id: string, c: CloudCosts, b: UserBilling): number {
   if (id === 'billing/service_fees') return b.service_fee_cost;
   if (id === 'margin/profit') return b.total - c.total;
   if (id === 'margin/margin_pct') return b.total === 0 ? 0 : ((b.total - c.total) / b.total) * 100;
+  if (id === 'derived/core_hours') return b.service_fee_cost * 100;
   return 0;
 }
 
@@ -209,6 +220,7 @@ function resolveTrend(id: string, p: MonthDataPoint): number {
   if (id === 'billing/service_fees') return p.service_fees;
   if (id === 'margin/profit') return p.profit;
   if (id === 'margin/margin_pct') return p.user_billing === 0 ? 0 : (p.profit / p.user_billing) * 100;
+  if (id === 'derived/core_hours') return p.service_fees * 100;
   return 0;
 }
 
@@ -584,6 +596,72 @@ function useLegendToggle(allKeys: readonly string[]) {
   return { onLegendClick, isHidden };
 }
 
+// --- Preset quick-links ---
+
+const RATIO_PRESETS: { label: string; num: string; den: string }[] = [
+  { label: 'Resource billing as % of user compute',  num: 'billing/resource_cost',  den: 'cloud/user_compute' },
+  { label: 'Service fees as % of user bill',          num: 'billing/service_fees',   den: 'billing/total' },
+  { label: 'Service fees as % of other overhead',    num: 'billing/service_fees',   den: 'cloud/other_overhead' },
+  { label: 'Other overhead as % of cloud costs',     num: 'cloud/other_overhead',   den: 'cloud/total' },
+  { label: 'K8s as % of cloud costs',                num: 'cloud/k8s',              den: 'cloud/total' },
+  { label: 'User billing as % of cloud costs',       num: 'billing/total',          den: 'cloud/total' },
+];
+
+const SCATTER_PRESETS: { label: string; x: string; y: string }[] = [
+  { label: 'Core hours vs Profit',             x: 'derived/core_hours', y: 'margin/profit' },
+  { label: 'Cloud total vs Profit',            x: 'cloud/total',        y: 'margin/profit' },
+  { label: 'User compute vs Resource billing', x: 'cloud/user_compute', y: 'billing/resource_cost' },
+  { label: 'Cloud total vs User billing',      x: 'cloud/total',        y: 'billing/total' },
+  { label: 'Other overhead vs Profit',         x: 'cloud/other_overhead', y: 'margin/profit' },
+  { label: 'User compute vs Margin %',         x: 'cloud/user_compute', y: 'margin/margin_pct' },
+];
+
+function PresetChips({ presets, activeNum, activeDen, onSelect }: {
+  presets: { label: string; num: string; den: string }[];
+  activeNum: string; activeDen: string;
+  onSelect: (num: string, den: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 py-2">
+      {presets.map(p => {
+        const active = p.num === activeNum && p.den === activeDen;
+        return (
+          <button
+            key={p.label}
+            onClick={() => onSelect(p.num, p.den)}
+            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${active ? 'bg-sky-500 border-sky-500 text-white' : 'border-zinc-300 text-zinc-500 hover:border-sky-400 hover:text-sky-600 bg-white'}`}
+          >
+            {p.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ScatterPresetChips({ presets, activeX, activeY, onSelect }: {
+  presets: { label: string; x: string; y: string }[];
+  activeX: string; activeY: string;
+  onSelect: (x: string, y: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 py-2">
+      {presets.map(p => {
+        const active = p.x === activeX && p.y === activeY;
+        return (
+          <button
+            key={p.label}
+            onClick={() => onSelect(p.x, p.y)}
+            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${active ? 'bg-sky-500 border-sky-500 text-white' : 'border-zinc-300 text-zinc-500 hover:border-sky-400 hover:text-sky-600 bg-white'}`}
+          >
+            {p.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // --- Main component ---
 
 interface CostAnalysisProps { monitoringBaseUrl: string; batchBaseUrl: string }
@@ -606,8 +684,6 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const otherComputeToggle = useLegendToggle(['batch_test', 'batch_dev', 'unknown'] as const);
   const k8sToggle = useLegendToggle(['k8s_nodes', 'k8s_mgmt'] as const);
   const billingToggle = useLegendToggle(['resource_cost', 'service_fees'] as const);
-  const RATIO_KEYS = ['svc_fee_overhead_pct', 'resource_billing_pct', 'svc_fee_bill_pct', 'overhead_cloud_pct', 'overhead_resource_pct'] as const;
-  const ratiosToggle = useLegendToggle(RATIO_KEYS);
   const [cloudShowPct, setCloudShowPct] = useState(false);
   const [billingShowPct, setBillingShowPct] = useState(false);
   const [timePeriod, setTimePeriod] = useState(currentMonthParam());
@@ -620,8 +696,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const [trendData, setTrendData] = useState<MonthDataPoint[]>([]);
   const [customRatioNum, setCustomRatioNum] = useState('billing/resource_cost');
   const [customRatioDen, setCustomRatioDen] = useState('cloud/user_compute');
-  const [scatterX, setScatterX] = useState('cloud/user_compute');
-  const [scatterY, setScatterY] = useState('billing/resource_cost');
+  const [scatterX, setScatterX] = useState('derived/core_hours');
+  const [scatterY, setScatterY] = useState('margin/profit');
   const [showRegression, setShowRegression] = useState(false);
   const [trendsLoading, setTrendsLoading] = useState(false);
 
@@ -950,13 +1026,9 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     : { resource_cost: computeStats(billingPctRows.map(row => rowNum(row, 'resource_cost'))), service_fees: computeStats(billingPctRows.map(row => rowNum(row, 'service_fees'))) };
 
   const profitStats = computeStats(trendData.map(d => d.profit));
-  const soloRatioKeys = RATIO_KEYS.filter(k => !ratiosToggle.isHidden(k));
-  const ratioStats = soloRatioKeys.length === 1
-    ? computeStats(trendData.map(d => d[soloRatioKeys[0]]).filter((v): v is number => v !== null))
-    : null;
-  const ratioSeriesStats: SeriesStats = Object.fromEntries(
-    RATIO_KEYS.map(k => [k, computeStats(trendData.map(d => d[k]).filter((v): v is number => v !== null))])
-  );
+  const coreHoursData = useMemo(() => trendData.map(d => ({ month: d.month, core_hours: d.service_fees * 100 })), [trendData]);
+  const coreHoursStats = useMemo(() => computeStats(coreHoursData.map(d => d.core_hours)), [coreHoursData]);
+  const coreHoursExtent = Math.max(0, ...coreHoursData.map(d => d.core_hours));
 
   const customRatioValues = useMemo(
     () => trendData.map(d => {
@@ -1243,6 +1315,12 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             ) : !loading && <p className="text-zinc-400 text-sm py-2">No data for {timePeriod}.</p>}
           </Panel>
 
+          {userBilling && (
+            <Panel title="Usage">
+              <RatioRow label="Core hours" value={fmtCoreHours(userBilling.service_fee_cost * 100)} />
+            </Panel>
+          )}
+
           {net !== null && cloudCosts && userBilling && (
             <>
               <Panel title="Margin Analysis">
@@ -1422,45 +1500,50 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             </Panel>
 
             <div className="h-10" />
+            <Panel title="Usage" collapsible>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={coreHoursData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={v => fmtCoreHours(v)} tick={{ fontSize: 11 }} width={56} domain={[0, coreHoursExtent]} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={coreHoursStats} format={fmtCoreHours} />} />
+                  {statsReferenceLines(coreHoursStats, 0, Infinity)}
+                  <Bar dataKey="core_hours" name="Core hours" fill="#818cf8" />
+                </BarChart>
+              </ResponsiveContainer>
+              <StatsDisplay stats={coreHoursStats} format={fmtCoreHours} />
+            </Panel>
+
+            <div className="h-10" />
             <Panel title="Ratios" collapsible>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <PresetChips
+                presets={RATIO_PRESETS}
+                activeNum={customRatioNum}
+                activeDen={customRatioDen}
+                onSelect={(num, den) => { setCustomRatioNum(num); setCustomRatioDen(den); }}
+              />
+              <CustomRatioPicker fieldGroups={fieldGroups} num={customRatioNum} den={customRatioDen} onNumChange={setCustomRatioNum} onDenChange={setCustomRatioDen} />
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={customRatioChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={v => `${v.toFixed(0)}%`} tick={{ fontSize: 11 }} width={48} domain={[0, 'auto']} />
-                  <Tooltip content={(p) => <ChartTooltip {...p} stats={ratioStats} seriesStats={ratioSeriesStats} format={v => `${v.toFixed(1)}%`} />} />
-                  <Legend onClick={ratiosToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                  {statsReferenceLines(ratioStats, -Infinity, Infinity)}
-                  <ReferenceLine y={100} stroke="#52525b" strokeWidth={1.5} />
-                  <ReferenceLine y={75} stroke="#d4d4d8" strokeWidth={1} strokeDasharray="4 3" />
-                  <ReferenceLine y={50} stroke="#d4d4d8" strokeWidth={1} strokeDasharray="4 3" />
-                  <ReferenceLine y={25} stroke="#d4d4d8" strokeWidth={1} strokeDasharray="4 3" />
-                  <Bar dataKey="svc_fee_overhead_pct" name="Service fees as % of overhead" fill="#f59e0b" hide={ratiosToggle.isHidden('svc_fee_overhead_pct')} />
-                  <Bar dataKey="resource_billing_pct" name="Resource billing as % of user-driven compute" fill="#0ea5e9" hide={ratiosToggle.isHidden('resource_billing_pct')} />
-                  <Bar dataKey="svc_fee_bill_pct" name="Service fees as % of user bill" fill="#a78bfa" hide={ratiosToggle.isHidden('svc_fee_bill_pct')} />
-                  <Bar dataKey="overhead_cloud_pct" name="Overhead as % of cloud costs" fill="#f87171" hide={ratiosToggle.isHidden('overhead_cloud_pct')} />
-                  <Bar dataKey="overhead_resource_pct" name="Overhead as % of user-driven resource costs" fill="#fb923c" hide={ratiosToggle.isHidden('overhead_resource_pct')} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={customRatioStats} format={v => `${v.toFixed(1)}%`} />} />
+                  {statsReferenceLines(customRatioStats, -Infinity, Infinity)}
+                  <Bar dataKey="value" name={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`} fill="#22d3ee" />
                 </BarChart>
               </ResponsiveContainer>
-              <StatsDisplay stats={ratioStats} format={v => `${v.toFixed(1)}%`} />
-              <div className="border-t border-zinc-100 mt-3 pt-1">
-                <CustomRatioPicker fieldGroups={fieldGroups} num={customRatioNum} den={customRatioDen} onNumChange={setCustomRatioNum} onDenChange={setCustomRatioDen} />
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={customRatioChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={v => `${v.toFixed(0)}%`} tick={{ fontSize: 11 }} width={48} domain={[0, 'auto']} />
-                    <Tooltip content={(p) => <ChartTooltip {...p} stats={customRatioStats} format={v => `${v.toFixed(1)}%`} />} />
-                    {statsReferenceLines(customRatioStats, -Infinity, Infinity)}
-                    <Bar dataKey="value" name={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`} fill="#22d3ee" />
-                  </BarChart>
-                </ResponsiveContainer>
-                <StatsDisplay stats={customRatioStats} format={v => `${v.toFixed(1)}%`} />
-              </div>
+              <StatsDisplay stats={customRatioStats} format={v => `${v.toFixed(1)}%`} />
             </Panel>
 
             <div className="h-10" />
             <Panel title="Scatter Plot" collapsible>
+              <ScatterPresetChips
+                presets={SCATTER_PRESETS}
+                activeX={scatterX}
+                activeY={scatterY}
+                onSelect={(x, y) => { setScatterX(x); setScatterY(y); }}
+              />
               <div className="flex items-center gap-2 py-2 flex-wrap">
                 <span className="text-xs text-zinc-500 shrink-0">X axis:</span>
                 <select
@@ -1488,6 +1571,13 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 </select>
                 <ToggleSwitch checked={showRegression} onChange={setShowRegression} label="regression line" />
               </div>
+              {(() => {
+                const fmtDollar = (v: number) => Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`;
+                const fmtPct = (v: number) => `${v.toFixed(1)}%`;
+                const fieldFmt = (id: string) => id === 'margin/margin_pct' ? fmtPct : id === 'derived/core_hours' ? fmtCoreHours : fmtDollar;
+                const fmtX = fieldFmt(scatterX);
+                const fmtY = fieldFmt(scatterY);
+                return <>
               <ResponsiveContainer width="100%" height={320}>
                 <ScatterChart margin={{ top: 16, right: 32, left: 0, bottom: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -1495,7 +1585,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                     type="number"
                     dataKey="x"
                     name={fieldLabel(scatterX, fieldGroups)}
-                    tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${Math.round(v)}`}
+                    tickFormatter={fmtX}
                     tick={{ fontSize: 11 }}
                     label={{ value: fieldLabel(scatterX, fieldGroups), position: 'insideBottom', offset: -8, fontSize: 11, fill: '#71717a' }}
                   />
@@ -1503,7 +1593,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                     type="number"
                     dataKey="y"
                     name={fieldLabel(scatterY, fieldGroups)}
-                    tickFormatter={v => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${Math.round(v)}`}
+                    tickFormatter={fmtY}
                     tick={{ fontSize: 11 }}
                     width={56}
                   />
@@ -1512,12 +1602,11 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                     content={({ payload }) => {
                       if (!payload?.length) return null;
                       const d = payload[0].payload as { month: string; x: number; y: number };
-                      const fmt = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`;
                       return (
                         <div className="rounded border border-zinc-200 bg-white px-3 py-2 text-xs shadow">
                           <div className="font-semibold text-zinc-700 mb-1">{d.month}</div>
-                          <div className="text-zinc-500">{fieldLabel(scatterX, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmt(d.x)}</span></div>
-                          <div className="text-zinc-500">{fieldLabel(scatterY, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmt(d.y)}</span></div>
+                          <div className="text-zinc-500">{fieldLabel(scatterX, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmtX(d.x)}</span></div>
+                          <div className="text-zinc-500">{fieldLabel(scatterY, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmtY(d.y)}</span></div>
                         </div>
                       );
                     }}
@@ -1547,17 +1636,14 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   )}
                 </ScatterChart>
               </ResponsiveContainer>
-              {(() => {
-                const fmtVal = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`;
-                return (
                   <RegressionStatsDisplay
                     reg={scatterRegression}
                     xLabel={fieldLabel(scatterX, fieldGroups)}
                     yLabel={fieldLabel(scatterY, fieldGroups)}
-                    fmtX={fmtVal}
-                    fmtY={fmtVal}
+                    fmtX={fmtX}
+                    fmtY={fmtY}
                   />
-                );
+                </>;
               })()}
             </Panel>
           </div>
