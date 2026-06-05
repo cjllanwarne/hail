@@ -289,6 +289,17 @@ function StatLabel({ label, tooltip }: { label: string; tooltip: string }) {
   );
 }
 
+function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-1.5 cursor-pointer select-none" onClick={() => onChange(!checked)}>
+      <div className={`relative w-8 h-4 rounded-full transition-colors ${checked ? 'bg-sky-500' : 'bg-zinc-300'}`}>
+        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
+      </div>
+      <span className="text-xs text-zinc-600">% of total</span>
+    </label>
+  );
+}
+
 function StatsDisplay({ stats, format }: { stats: { mean: number; std: number } | null; format: (v: number) => string }) {
   if (!stats) return null;
   const { mean, std } = stats;
@@ -344,6 +355,18 @@ function statsReferenceLines(stats: { mean: number; std: number } | null, yMin: 
         label={{ value: e.label, position: 'insideTopRight', fontSize: 9, fill: '#818cf8', fillOpacity: e.alpha }}
       />
     ));
+}
+
+function toPctRows<T extends Record<string, unknown>>(rows: T[], keys: string[]): T[] {
+  return rows.map(row => {
+    const total = keys.reduce((s, k) => s + (typeof row[k] === 'number' ? (row[k] as number) : 0), 0);
+    if (total === 0) return row;
+    const result = { ...row } as Record<string, unknown>;
+    for (const k of keys) {
+      if (typeof result[k] === 'number') result[k] = ((result[k] as number) / total) * 100;
+    }
+    return result as T;
+  });
 }
 
 interface PieSlice { name: string; value: number; fill: string }
@@ -414,6 +437,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const billingToggle = useLegendToggle(['resource_cost', 'service_fees'] as const);
   const RATIO_KEYS = ['svc_fee_overhead_pct', 'resource_billing_pct', 'svc_fee_bill_pct', 'overhead_cloud_pct', 'overhead_resource_pct'] as const;
   const ratiosToggle = useLegendToggle(RATIO_KEYS);
+  const [cloudShowPct, setCloudShowPct] = useState(false);
+  const [billingShowPct, setBillingShowPct] = useState(false);
   const [timePeriod, setTimePeriod] = useState(currentMonthParam());
   const [cloudCosts, setCloudCosts] = useState<CloudCosts | null>(null);
   const [userBilling, setUserBilling] = useState<UserBilling | null>(null);
@@ -490,6 +515,43 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     (byProduct: Record<string, number>) =>
       Object.entries(byProduct).filter(([p]) => !userComputeMonthlyProducts.includes(p)).reduce((s, [, v]) => s + v, 0),
     [userComputeMonthlyProducts]
+  );
+
+  const cloudSeriesKeys = useMemo(() => {
+    if (cloudView === 'user_compute') return [...userComputeProducts, ...(userComputeHasOther ? ['(Other)'] : [])];
+    if (cloudView === 'other_compute') return ['batch_test', 'batch_dev', 'unknown'];
+    if (cloudView === 'k8s') return ['k8s_nodes', 'k8s_mgmt'];
+    if (cloudView === 'other_overhead') return [...overheadServices];
+    return ['user_compute', 'other_compute', 'k8s', 'other_overhead'];
+  }, [cloudView, userComputeProducts, userComputeHasOther, overheadServices]);
+
+  const cloudBaseData = useMemo(() => {
+    if (cloudView === 'user_compute')
+      return trendData.map(d => ({ month: d.month, ...Object.fromEntries(userComputeProducts.map(p => [p, d.user_compute_by_product[p] ?? 0])), ...(userComputeHasOther ? { '(Other)': ucOther(d.user_compute_by_product) } : {}) }));
+    if (cloudView === 'other_overhead')
+      return trendData.map(d => ({ month: d.month, ...Object.fromEntries(overheadServices.map(svc => [svc, d.non_compute_services[svc] ?? 0])) }));
+    return trendData as unknown[];
+  }, [cloudView, trendData, userComputeProducts, userComputeHasOther, ucOther, overheadServices]);
+
+  const cloudChartData = useMemo(
+    () => cloudShowPct ? toPctRows(cloudBaseData as Record<string, unknown>[], cloudSeriesKeys) : cloudBaseData,
+    [cloudShowPct, cloudBaseData, cloudSeriesKeys]
+  );
+
+  const billingSeriesKeys = useMemo(() => {
+    if (billingView === 'resource_usage') return [...billingResources, ...(billingResourcesHasOther ? ['(Other)'] : [])];
+    return ['resource_cost', 'service_fees'];
+  }, [billingView, billingResources, billingResourcesHasOther]);
+
+  const billingBaseData = useMemo(() => {
+    if (billingView === 'resource_usage')
+      return trendData.map(d => ({ month: d.month, ...Object.fromEntries(billingResources.map(r => [r, d.resource_by_type[r] ?? 0])), ...(billingResourcesHasOther ? { '(Other)': brOther(d.resource_by_type) } : {}) }));
+    return trendData as unknown[];
+  }, [billingView, trendData, billingResources, billingResourcesHasOther, brOther]);
+
+  const billingChartData = useMemo(
+    () => billingShowPct ? toPctRows(billingBaseData as Record<string, unknown>[], billingSeriesKeys) : billingBaseData,
+    [billingShowPct, billingBaseData, billingSeriesKeys]
   );
 
   const OVERHEAD_PALETTE = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#818cf8', '#4f46e5', '#7c3aed', '#9333ea', '#a855f7', '#c026d3'];
@@ -660,6 +722,40 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
         resource_cost: computeStats(trendData.map(d => d.resource_cost)),
         service_fees: computeStats(trendData.map(d => d.service_fees)),
       };
+  const rowNum = (row: Record<string, unknown>, k: string) => typeof row[k] === 'number' ? row[k] as number : 0;
+
+  const cloudPctRows = cloudChartData as Record<string, unknown>[];
+  const cloudPctStats = computeStats(cloudPctRows.map(row =>
+    cloudView === 'user_compute'
+      ? [...userComputeProducts.filter(p => !isUserComputeHidden(p)), ...(userComputeHasOther && !isUserComputeHidden('(Other)') ? ['(Other)'] : [])].reduce((s, k) => s + rowNum(row, k), 0)
+      : cloudView === 'other_compute'
+        ? (['batch_test', 'batch_dev', 'unknown'] as const).filter(k => !otherComputeToggle.isHidden(k)).reduce((s, k) => s + rowNum(row, k), 0)
+        : cloudView === 'k8s'
+          ? (['k8s_nodes', 'k8s_mgmt'] as const).filter(k => !k8sToggle.isHidden(k)).reduce((s, k) => s + rowNum(row, k), 0)
+          : cloudView === 'other_overhead'
+            ? overheadServices.filter(s => !isOverheadHidden(s)).reduce((s, k) => s + rowNum(row, k), 0)
+            : (['user_compute', 'other_compute', 'k8s', 'other_overhead'] as const).filter(k => !cloudCostsToggle.isHidden(k)).reduce((s, k) => s + rowNum(row, k), 0)
+  ));
+  const cloudPctSeriesStats: SeriesStats = cloudView === 'user_compute'
+    ? { ...Object.fromEntries(userComputeProducts.map(p => [p, computeStats(cloudPctRows.map(row => rowNum(row, p)))])), ...(userComputeHasOther ? { '(Other)': computeStats(cloudPctRows.map(row => rowNum(row, '(Other)'))) } : {}) }
+    : cloudView === 'other_compute'
+      ? { batch_test: computeStats(cloudPctRows.map(row => rowNum(row, 'batch_test'))), batch_dev: computeStats(cloudPctRows.map(row => rowNum(row, 'batch_dev'))), unknown: computeStats(cloudPctRows.map(row => rowNum(row, 'unknown'))) }
+      : cloudView === 'k8s'
+        ? { k8s_nodes: computeStats(cloudPctRows.map(row => rowNum(row, 'k8s_nodes'))), k8s_mgmt: computeStats(cloudPctRows.map(row => rowNum(row, 'k8s_mgmt'))) }
+        : cloudView === 'other_overhead'
+          ? Object.fromEntries(overheadServices.map(svc => [svc, computeStats(cloudPctRows.map(row => rowNum(row, svc)))]))
+          : { user_compute: computeStats(cloudPctRows.map(row => rowNum(row, 'user_compute'))), other_compute: computeStats(cloudPctRows.map(row => rowNum(row, 'other_compute'))), k8s: computeStats(cloudPctRows.map(row => rowNum(row, 'k8s'))), other_overhead: computeStats(cloudPctRows.map(row => rowNum(row, 'other_overhead'))) };
+
+  const billingPctRows = billingChartData as Record<string, unknown>[];
+  const billingPctStats = computeStats(billingPctRows.map(row =>
+    billingView === 'resource_usage'
+      ? [...billingResources.filter(r => !isBillingResourceHidden(r)), ...(billingResourcesHasOther && !isBillingResourceHidden('(Other)') ? ['(Other)'] : [])].reduce((s, k) => s + rowNum(row, k), 0)
+      : (['resource_cost', 'service_fees'] as const).filter(k => !billingToggle.isHidden(k)).reduce((s, k) => s + rowNum(row, k), 0)
+  ));
+  const billingPctSeriesStats: SeriesStats = billingView === 'resource_usage'
+    ? { ...Object.fromEntries(billingResources.map(r => [r, computeStats(billingPctRows.map(row => rowNum(row, r)))])), ...(billingResourcesHasOther ? { '(Other)': computeStats(billingPctRows.map(row => rowNum(row, '(Other)'))) } : {}) }
+    : { resource_cost: computeStats(billingPctRows.map(row => rowNum(row, 'resource_cost'))), service_fees: computeStats(billingPctRows.map(row => rowNum(row, 'service_fees'))) };
+
   const profitStats = computeStats(trendData.map(d => d.profit));
   const soloRatioKeys = RATIO_KEYS.filter(k => !ratiosToggle.isHidden(k));
   const ratioStats = soloRatioKeys.length === 1
@@ -952,35 +1048,36 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
         ) : (
           <div>
             <Panel title="Cloud Costs" collapsible viewSelector={
-              <select
-                className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
-                value={cloudView}
-                onChange={e => setCloudView(e.target.value as typeof cloudView)}
-              >
-                <option value="summary">Summary</option>
-                <option value="user_compute">User-driven compute</option>
-                <option value="other_compute">Other compute</option>
-                <option value="k8s">K8s</option>
-                <option value="other_overhead">Other overhead</option>
-              </select>
+              <div className="flex items-center gap-3">
+                <ToggleSwitch checked={cloudShowPct} onChange={setCloudShowPct} />
+                <select
+                  className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                  value={cloudView}
+                  onChange={e => setCloudView(e.target.value as typeof cloudView)}
+                >
+                  <option value="summary">Summary</option>
+                  <option value="user_compute">User-driven compute</option>
+                  <option value="other_compute">Other compute</option>
+                  <option value="k8s">K8s</option>
+                  <option value="other_overhead">Other overhead</option>
+                </select>
+              </div>
             }>
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart
-                  data={cloudView === 'user_compute'
-                    ? trendData.map(d => ({ month: d.month, ...Object.fromEntries(userComputeProducts.map(p => [p, d.user_compute_by_product[p] ?? 0])), ...(userComputeHasOther ? { '(Other)': ucOther(d.user_compute_by_product) } : {}) }))
-                    : cloudView === 'other_overhead'
-                      ? trendData.map(d => ({ month: d.month, ...Object.fromEntries(overheadServices.map(svc => [svc, d.non_compute_services[svc] ?? 0])) }))
-                      : trendData}
-                  margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-                >
+                <BarChart data={cloudChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={makeYDollarFormatter(cloudYMax)} tick={{ fontSize: 11 }} width={56} domain={[0, cloudYMax]} />
-                  <Tooltip content={(p) => <ChartTooltip {...p} stats={cloudStats} seriesStats={cloudSeriesStats} format={fmt} stacked />} />
+                  <YAxis
+                    tickFormatter={cloudShowPct ? (v => `${v.toFixed(0)}%`) : makeYDollarFormatter(cloudYMax)}
+                    tick={{ fontSize: 11 }}
+                    width={56}
+                    domain={cloudShowPct ? [0, 100] : [0, cloudYMax]}
+                  />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={cloudShowPct ? cloudPctStats : cloudStats} seriesStats={cloudShowPct ? cloudPctSeriesStats : cloudSeriesStats} format={cloudShowPct ? (v => `${v.toFixed(1)}%`) : fmt} stacked />} />
                   {cloudView === 'summary' ? (
                     <>
                       <Legend onClick={cloudCostsToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                      {statsReferenceLines(cloudStats, 0, cloudYMax)}
+                      {statsReferenceLines(cloudShowPct ? cloudPctStats : cloudStats, 0, cloudShowPct ? 100 : cloudYMax)}
                       <Bar dataKey="user_compute" name="User-driven compute" stackId="a" fill="#0ea5e9" hide={cloudCostsToggle.isHidden('user_compute')} />
                       <Bar dataKey="other_compute" name="Other compute" stackId="a" fill="#f59e0b" hide={cloudCostsToggle.isHidden('other_compute')} />
                       <Bar dataKey="k8s" name="K8s" stackId="a" fill="#10b981" hide={cloudCostsToggle.isHidden('k8s')} />
@@ -989,7 +1086,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   ) : cloudView === 'user_compute' ? (
                     <>
                       <Legend onClick={onUserComputeLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                      {statsReferenceLines(cloudStats, 0, cloudYMax)}
+                      {statsReferenceLines(cloudShowPct ? cloudPctStats : cloudStats, 0, cloudShowPct ? 100 : cloudYMax)}
                       {userComputeProducts.map(p => (
                         <Bar key={p} dataKey={p} name={p} stackId="a" fill={userComputeProductColor(p)} hide={isUserComputeHidden(p)} />
                       ))}
@@ -998,7 +1095,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   ) : cloudView === 'other_compute' ? (
                     <>
                       <Legend onClick={otherComputeToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                      {statsReferenceLines(cloudStats, 0, cloudYMax)}
+                      {statsReferenceLines(cloudShowPct ? cloudPctStats : cloudStats, 0, cloudShowPct ? 100 : cloudYMax)}
                       <Bar dataKey="batch_test" name="CI / test batches" stackId="a" fill="#f59e0b" hide={otherComputeToggle.isHidden('batch_test')} />
                       <Bar dataKey="batch_dev" name="Dev batches" stackId="a" fill="#fcd34d" hide={otherComputeToggle.isHidden('batch_dev')} />
                       <Bar dataKey="unknown" name="Unknown / unlabeled" stackId="a" fill="#fef3c7" hide={otherComputeToggle.isHidden('unknown')} />
@@ -1006,14 +1103,14 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   ) : cloudView === 'k8s' ? (
                     <>
                       <Legend onClick={k8sToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                      {statsReferenceLines(cloudStats, 0, cloudYMax)}
+                      {statsReferenceLines(cloudShowPct ? cloudPctStats : cloudStats, 0, cloudShowPct ? 100 : cloudYMax)}
                       <Bar dataKey="k8s_nodes" name="Compute nodes" stackId="a" fill="#059669" hide={k8sToggle.isHidden('k8s_nodes')} />
                       <Bar dataKey="k8s_mgmt" name="Management fee" stackId="a" fill="#6ee7b7" hide={k8sToggle.isHidden('k8s_mgmt')} />
                     </>
                   ) : (
                     <>
                       <Legend onClick={onOverheadLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                      {statsReferenceLines(cloudStats, 0, cloudYMax)}
+                      {statsReferenceLines(cloudShowPct ? cloudPctStats : cloudStats, 0, cloudShowPct ? 100 : cloudYMax)}
                       {overheadServices.map(svc => (
                         <Bar key={svc} dataKey={svc} name={svc} stackId="a" fill={overheadServiceColor(svc)} hide={isOverheadHidden(svc)} />
                       ))}
@@ -1021,42 +1118,45 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   )}
                 </BarChart>
               </ResponsiveContainer>
-              <StatsDisplay stats={cloudStats} format={fmt} />
+              <StatsDisplay stats={cloudShowPct ? cloudPctStats : cloudStats} format={cloudShowPct ? (v => `${v.toFixed(1)}%`) : fmt} />
             </Panel>
 
             <div className="h-10" />
             <Panel title="Billing Charges" collapsible viewSelector={
-              <select
-                className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
-                value={billingView}
-                onChange={e => setBillingView(e.target.value as typeof billingView)}
-              >
-                <option value="summary">Summary</option>
-                <option value="resource_usage">Resource usage</option>
-              </select>
+              <div className="flex items-center gap-3">
+                <ToggleSwitch checked={billingShowPct} onChange={setBillingShowPct} />
+                <select
+                  className="text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                  value={billingView}
+                  onChange={e => setBillingView(e.target.value as typeof billingView)}
+                >
+                  <option value="summary">Summary</option>
+                  <option value="resource_usage">Resource usage</option>
+                </select>
+              </div>
             }>
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart
-                  data={(billingView === 'resource_usage'
-                    ? trendData.map(d => ({ month: d.month, ...Object.fromEntries(billingResources.map(r => [r, d.resource_by_type[r] ?? 0])), ...(billingResourcesHasOther ? { '(Other)': brOther(d.resource_by_type) } : {}) }))
-                    : trendData) as MonthDataPoint[]}
-                  margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-                >
+                <BarChart data={billingChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={makeYDollarFormatter(billingYMax)} tick={{ fontSize: 11 }} width={56} domain={[0, billingYMax]} />
-                  <Tooltip content={(p) => <ChartTooltip {...p} stats={billingStats} seriesStats={billingSeriesStats} format={fmt} stacked />} />
+                  <YAxis
+                    tickFormatter={billingShowPct ? (v => `${v.toFixed(0)}%`) : makeYDollarFormatter(billingYMax)}
+                    tick={{ fontSize: 11 }}
+                    width={56}
+                    domain={billingShowPct ? [0, 100] : [0, billingYMax]}
+                  />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={billingShowPct ? billingPctStats : billingStats} seriesStats={billingShowPct ? billingPctSeriesStats : billingSeriesStats} format={billingShowPct ? (v => `${v.toFixed(1)}%`) : fmt} stacked />} />
                   {billingView === 'summary' ? (
                     <>
                       <Legend onClick={billingToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                      {statsReferenceLines(billingStats, 0, billingYMax)}
+                      {statsReferenceLines(billingShowPct ? billingPctStats : billingStats, 0, billingShowPct ? 100 : billingYMax)}
                       <Bar dataKey="resource_cost" name="Resource charges" stackId="a" fill="#10b981" hide={billingToggle.isHidden('resource_cost')} />
                       <Bar dataKey="service_fees" name="Service fees" stackId="a" fill="#6ee7b7" hide={billingToggle.isHidden('service_fees')} />
                     </>
                   ) : (
                     <>
                       <Legend onClick={onBillingResourceLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                      {statsReferenceLines(billingStats, 0, billingYMax)}
+                      {statsReferenceLines(billingShowPct ? billingPctStats : billingStats, 0, billingShowPct ? 100 : billingYMax)}
                       {billingResources.map(r => (
                         <Bar key={r} dataKey={r} name={r} stackId="a" fill={billingResourceColor(r)} hide={isBillingResourceHidden(r)} />
                       ))}
@@ -1065,7 +1165,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   )}
                 </BarChart>
               </ResponsiveContainer>
-              <StatsDisplay stats={billingStats} format={fmt} />
+              <StatsDisplay stats={billingShowPct ? billingPctStats : billingStats} format={billingShowPct ? (v => `${v.toFixed(1)}%`) : fmt} />
             </Panel>
 
             <div className="h-10" />
