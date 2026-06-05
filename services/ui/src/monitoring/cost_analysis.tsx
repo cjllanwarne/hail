@@ -118,6 +118,89 @@ function monthParamToLabel(param: string): string {
   return new Date(parseInt(yyyy), parseInt(mm) - 1, 1).toLocaleString('en-US', { month: 'short', year: 'numeric' });
 }
 
+// --- Custom ratio field helpers ---
+
+interface FieldGroup { group: string; fields: { id: string; label: string }[] }
+
+function buildFieldGroups(products: string[], nonComputeServices: string[], resourceTypes: string[]): FieldGroup[] {
+  return [
+    {
+      group: 'Cloud Costs',
+      fields: [
+        { id: 'cloud/total', label: 'Total' },
+        { id: 'cloud/user_compute', label: 'User-driven compute' },
+        ...products.map(p => ({ id: `cloud/user_compute/${p}`, label: `  User-driven compute / ${p}` })),
+        { id: 'cloud/other_compute', label: 'Other compute' },
+        { id: 'cloud/batch_test', label: '  Other compute / CI/test batches' },
+        { id: 'cloud/batch_dev', label: '  Other compute / Dev batches' },
+        { id: 'cloud/unknown', label: '  Other compute / Unknown/unlabeled' },
+        { id: 'cloud/k8s', label: 'K8s' },
+        { id: 'cloud/k8s_nodes', label: '  K8s / Nodes' },
+        { id: 'cloud/k8s_mgmt', label: '  K8s / Management' },
+        { id: 'cloud/other_overhead', label: 'Other overhead' },
+        ...nonComputeServices.map(s => ({ id: `cloud/non_compute/${s}`, label: `  Other overhead / ${s}` })),
+      ],
+    },
+    {
+      group: 'User Billing',
+      fields: [
+        { id: 'billing/total', label: 'Total' },
+        { id: 'billing/resource_cost', label: 'Resource cost' },
+        ...resourceTypes.map(r => ({ id: `billing/resource/${r}`, label: `  Resource cost / ${r}` })),
+        { id: 'billing/service_fees', label: 'Service fees' },
+      ],
+    },
+  ];
+}
+
+function fieldLabel(id: string, groups: FieldGroup[]): string {
+  for (const g of groups) {
+    const f = g.fields.find(f => f.id === id);
+    if (f) return `${g.group} / ${f.label.trim()}`;
+  }
+  return id;
+}
+
+function resolveMonthly(id: string, c: CloudCosts, b: UserBilling): number {
+  if (id === 'cloud/total') return c.total;
+  if (id === 'cloud/user_compute') return c.user_compute;
+  if (id.startsWith('cloud/user_compute/')) return c.user_compute_by_product[id.slice(19)] ?? 0;
+  if (id === 'cloud/other_compute') return c.other_compute;
+  if (id === 'cloud/batch_test') return c.batch_test;
+  if (id === 'cloud/batch_dev') return c.batch_dev;
+  if (id === 'cloud/unknown') return c.unknown;
+  if (id === 'cloud/k8s') return c.k8s;
+  if (id === 'cloud/k8s_nodes') return c.k8s_nodes;
+  if (id === 'cloud/k8s_mgmt') return c.k8s_mgmt;
+  if (id === 'cloud/other_overhead') return c.other_overhead;
+  if (id.startsWith('cloud/non_compute/')) return c.non_compute_services[id.slice(18)] ?? 0;
+  if (id === 'billing/total') return b.total;
+  if (id === 'billing/resource_cost') return b.resource_cost;
+  if (id.startsWith('billing/resource/')) return b.resource_by_type[id.slice(17)] ?? 0;
+  if (id === 'billing/service_fees') return b.service_fee_cost;
+  return 0;
+}
+
+function resolveTrend(id: string, p: MonthDataPoint): number {
+  if (id === 'cloud/total') return p.cloud_total;
+  if (id === 'cloud/user_compute') return p.user_compute;
+  if (id.startsWith('cloud/user_compute/')) return (p.user_compute_by_product ?? {})[id.slice(19)] ?? 0;
+  if (id === 'cloud/other_compute') return p.other_compute;
+  if (id === 'cloud/batch_test') return p.batch_test;
+  if (id === 'cloud/batch_dev') return p.batch_dev;
+  if (id === 'cloud/unknown') return p.unknown;
+  if (id === 'cloud/k8s') return p.k8s;
+  if (id === 'cloud/k8s_nodes') return p.k8s_nodes;
+  if (id === 'cloud/k8s_mgmt') return p.k8s_mgmt;
+  if (id === 'cloud/other_overhead') return p.other_overhead;
+  if (id.startsWith('cloud/non_compute/')) return (p.non_compute_services ?? {})[id.slice(18)] ?? 0;
+  if (id === 'billing/total') return p.user_billing;
+  if (id === 'billing/resource_cost') return p.resource_cost;
+  if (id.startsWith('billing/resource/')) return (p.resource_by_type ?? {})[id.slice(17)] ?? 0;
+  if (id === 'billing/service_fees') return p.service_fees;
+  return 0;
+}
+
 // --- API fetchers ---
 
 async function fetchCloudCosts(monitoringBaseUrl: string, period: string): Promise<CloudCosts> {
@@ -187,6 +270,28 @@ async function fetchUserBilling(batchBaseUrl: string, period: string): Promise<U
 }
 
 // --- Components ---
+
+function CustomRatioPicker({ fieldGroups, num, den, onNumChange, onDenChange }: {
+  fieldGroups: FieldGroup[];
+  num: string; den: string;
+  onNumChange: (v: string) => void;
+  onDenChange: (v: string) => void;
+}) {
+  const selectClass = 'text-xs border border-zinc-300 rounded px-2 py-1 bg-white text-zinc-600 focus:outline-none focus:ring-2 focus:ring-sky-400 flex-1 min-w-0';
+  const renderOptions = () => fieldGroups.map(g => (
+    <optgroup key={g.group} label={g.group}>
+      {g.fields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+    </optgroup>
+  ));
+  return (
+    <div className="flex items-center gap-2 py-2 flex-wrap">
+      <span className="text-xs text-zinc-500 shrink-0">Custom:</span>
+      <select className={selectClass} value={num} onChange={e => onNumChange(e.target.value)}>{renderOptions()}</select>
+      <span className="text-xs text-zinc-400 shrink-0">as % of</span>
+      <select className={selectClass} value={den} onChange={e => onDenChange(e.target.value)}>{renderOptions()}</select>
+    </div>
+  );
+}
 
 interface PanelProps { title: string; subtitle?: string; collapsible?: boolean; viewSelector?: React.ReactNode; children: React.ReactNode }
 function Panel({ title, subtitle, collapsible = false, viewSelector, children }: PanelProps) {
@@ -447,6 +552,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const [loading, setLoading] = useState(false);
 
   const [trendData, setTrendData] = useState<MonthDataPoint[]>([]);
+  const [customRatioNum, setCustomRatioNum] = useState('billing/resource_cost');
+  const [customRatioDen, setCustomRatioDen] = useState('cloud/user_compute');
   const [trendsLoading, setTrendsLoading] = useState(false);
 
   const overheadServices = useMemo(() => {
@@ -510,6 +617,23 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     const hasOther = Object.values(cloudCosts.user_compute_by_product).some(v => v < 10);
     return { userComputeMonthlyProducts: products, userComputeMonthlyHasOther: hasOther };
   }, [cloudCosts]);
+
+  const fieldGroups = useMemo<FieldGroup[]>(() => {
+    const products = new Set<string>();
+    const nonComputeServices = new Set<string>();
+    const resourceTypes = new Set<string>();
+    if (cloudCosts) {
+      Object.keys(cloudCosts.user_compute_by_product).forEach(p => products.add(p));
+      Object.keys(cloudCosts.non_compute_services).forEach(s => nonComputeServices.add(s));
+    }
+    if (userBilling) Object.keys(userBilling.resource_by_type).forEach(r => resourceTypes.add(r));
+    trendData.forEach(d => {
+      Object.keys(d.user_compute_by_product ?? {}).forEach(p => products.add(p));
+      Object.keys(d.non_compute_services ?? {}).forEach(s => nonComputeServices.add(s));
+      Object.keys(d.resource_by_type ?? {}).forEach(r => resourceTypes.add(r));
+    });
+    return buildFieldGroups([...products].sort(), [...nonComputeServices].sort(), [...resourceTypes].sort());
+  }, [cloudCosts, userBilling, trendData]);
 
   const ucOtherMonthly = useCallback(
     (byProduct: Record<string, number>) =>
@@ -763,6 +887,22 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     : null;
   const ratioSeriesStats: SeriesStats = Object.fromEntries(
     RATIO_KEYS.map(k => [k, computeStats(trendData.map(d => d[k]).filter((v): v is number => v !== null))])
+  );
+
+  const customRatioValues = useMemo(
+    () => trendData.map(d => {
+      const den = resolveTrend(customRatioDen, d);
+      return den === 0 ? null : (resolveTrend(customRatioNum, d) / den) * 100;
+    }),
+    [trendData, customRatioNum, customRatioDen]
+  );
+  const customRatioStats = useMemo(
+    () => computeStats(customRatioValues.filter((v): v is number => v !== null)),
+    [customRatioValues]
+  );
+  const customRatioChartData = useMemo(
+    () => trendData.map((d, i) => ({ month: d.month, value: customRatioValues[i] })),
+    [trendData, customRatioValues]
   );
 
   const fetchData = useCallback(async (period: string) => {
@@ -1020,24 +1160,35 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           </Panel>
 
           {net !== null && cloudCosts && userBilling && (
-            <Panel title="Margin Analysis">
-              <CostRow
-                label="Net (billed − cloud)"
-                value={net}
-                bold
-                colorClass={net >= 0 ? 'text-emerald-600' : 'text-red-600'}
-              />
-              <div className="flex justify-between py-2 border-b border-zinc-100">
-                <span className="text-zinc-700 font-semibold">Margin %</span>
-                <span className={`tabular-nums font-semibold ${net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {pct(net, cloudCosts.total)}
-                </span>
-              </div>
-              <RatioRow label="User compute as % of cloud" value={pct(cloudCosts.user_compute, cloudCosts.total)} />
-              <RatioRow label="Resource billing as % of user-driven compute" value={pct(userBilling.resource_cost, cloudCosts.user_compute)} />
-              <RatioRow label="Service fees as % of user billing" value={pct(userBilling.service_fee_cost, userBilling.total)} />
-              <RatioRow label="Service fees as % of overhead" value={pct(userBilling.service_fee_cost, cloudCosts.other_compute + cloudCosts.other_overhead)} />
-            </Panel>
+            <>
+              <Panel title="Margin Analysis">
+                <CostRow
+                  label="Net (billed − cloud)"
+                  value={net}
+                  bold
+                  colorClass={net >= 0 ? 'text-emerald-600' : 'text-red-600'}
+                />
+                <div className="flex justify-between py-2 border-b border-zinc-100">
+                  <span className="text-zinc-700 font-semibold">Margin %</span>
+                  <span className={`tabular-nums font-semibold ${net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {pct(net, cloudCosts.total)}
+                  </span>
+                </div>
+              </Panel>
+              <Panel title="Ratios">
+                <RatioRow label="User compute as % of cloud" value={pct(cloudCosts.user_compute, cloudCosts.total)} />
+                <RatioRow label="Resource billing as % of user-driven compute" value={pct(userBilling.resource_cost, cloudCosts.user_compute)} />
+                <RatioRow label="Service fees as % of user billing" value={pct(userBilling.service_fee_cost, userBilling.total)} />
+                <RatioRow label="Service fees as % of overhead" value={pct(userBilling.service_fee_cost, cloudCosts.other_compute + cloudCosts.other_overhead)} />
+                <div className="border-t border-zinc-100 pt-1">
+                  <CustomRatioPicker fieldGroups={fieldGroups} num={customRatioNum} den={customRatioDen} onNumChange={setCustomRatioNum} onDenChange={setCustomRatioDen} />
+                  <RatioRow
+                    label={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`}
+                    value={pct(resolveMonthly(customRatioNum, cloudCosts, userBilling), resolveMonthly(customRatioDen, cloudCosts, userBilling))}
+                  />
+                </div>
+              </Panel>
+            </>
           )}
         </>
       )}
@@ -1208,6 +1359,20 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 </BarChart>
               </ResponsiveContainer>
               <StatsDisplay stats={ratioStats} format={v => `${v.toFixed(1)}%`} />
+              <div className="border-t border-zinc-100 mt-3 pt-1">
+                <CustomRatioPicker fieldGroups={fieldGroups} num={customRatioNum} den={customRatioDen} onNumChange={setCustomRatioNum} onDenChange={setCustomRatioDen} />
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={customRatioChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={v => `${v.toFixed(0)}%`} tick={{ fontSize: 11 }} width={48} domain={[0, 'auto']} />
+                    <Tooltip content={(p) => <ChartTooltip {...p} stats={customRatioStats} format={v => `${v.toFixed(1)}%`} />} />
+                    {statsReferenceLines(customRatioStats, -Infinity, Infinity)}
+                    <Bar dataKey="value" name={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`} fill="#22d3ee" />
+                  </BarChart>
+                </ResponsiveContainer>
+                <StatsDisplay stats={customRatioStats} format={v => `${v.toFixed(1)}%`} />
+              </div>
             </Panel>
           </div>
         )
