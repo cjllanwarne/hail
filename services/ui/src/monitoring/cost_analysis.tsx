@@ -127,27 +127,27 @@ function buildFieldGroups(products: string[], nonComputeServices: string[], reso
     {
       group: 'Cloud Costs',
       fields: [
-        { id: 'cloud/total', label: 'Total' },
-        { id: 'cloud/user_compute', label: 'User-driven compute' },
-        ...products.map(p => ({ id: `cloud/user_compute/${p}`, label: `  User-driven compute / ${p}` })),
-        { id: 'cloud/other_compute', label: 'Other compute' },
-        { id: 'cloud/batch_test', label: '  Other compute / CI/test batches' },
-        { id: 'cloud/batch_dev', label: '  Other compute / Dev batches' },
-        { id: 'cloud/unknown', label: '  Other compute / Unknown/unlabeled' },
-        { id: 'cloud/k8s', label: 'K8s' },
-        { id: 'cloud/k8s_nodes', label: '  K8s / Nodes' },
-        { id: 'cloud/k8s_mgmt', label: '  K8s / Management' },
-        { id: 'cloud/other_overhead', label: 'Other overhead' },
-        ...nonComputeServices.map(s => ({ id: `cloud/non_compute/${s}`, label: `  Other overhead / ${s}` })),
+        { id: 'cloud/total', label: 'Cloud Costs / Total' },
+        { id: 'cloud/user_compute', label: 'Cloud Costs / User-driven compute' },
+        ...products.map(p => ({ id: `cloud/user_compute/${p}`, label: `Cloud Costs / User-driven compute / ${p}` })),
+        { id: 'cloud/other_compute', label: 'Cloud Costs / Other compute' },
+        { id: 'cloud/batch_test', label: 'Cloud Costs / Other compute / CI/test batches' },
+        { id: 'cloud/batch_dev', label: 'Cloud Costs / Other compute / Dev batches' },
+        { id: 'cloud/unknown', label: 'Cloud Costs / Other compute / Unknown/unlabeled' },
+        { id: 'cloud/k8s', label: 'Cloud Costs / K8s' },
+        { id: 'cloud/k8s_nodes', label: 'Cloud Costs / K8s / Nodes' },
+        { id: 'cloud/k8s_mgmt', label: 'Cloud Costs / K8s / Management' },
+        { id: 'cloud/other_overhead', label: 'Cloud Costs / Other overhead' },
+        ...nonComputeServices.map(s => ({ id: `cloud/non_compute/${s}`, label: `Cloud Costs / Other overhead / ${s}` })),
       ],
     },
     {
       group: 'User Billing',
       fields: [
-        { id: 'billing/total', label: 'Total' },
-        { id: 'billing/resource_cost', label: 'Resource cost' },
-        ...resourceTypes.map(r => ({ id: `billing/resource/${r}`, label: `  Resource cost / ${r}` })),
-        { id: 'billing/service_fees', label: 'Service fees' },
+        { id: 'billing/total', label: 'User Billing / Total' },
+        { id: 'billing/resource_cost', label: 'User Billing / Resource cost' },
+        ...resourceTypes.map(r => ({ id: `billing/resource/${r}`, label: `User Billing / Resource cost / ${r}` })),
+        { id: 'billing/service_fees', label: 'User Billing / Service fees' },
       ],
     },
   ];
@@ -156,7 +156,7 @@ function buildFieldGroups(products: string[], nonComputeServices: string[], reso
 function fieldLabel(id: string, groups: FieldGroup[]): string {
   for (const g of groups) {
     const f = g.fields.find(f => f.id === id);
-    if (f) return `${g.group} / ${f.label.trim()}`;
+    if (f) return f.label;
   }
   return id;
 }
