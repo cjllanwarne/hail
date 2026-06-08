@@ -752,7 +752,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const billingToggle = useLegendToggle(['resource_cost', 'service_fees'] as const);
   const [cloudShowPct, setCloudShowPct] = useState(false);
   const [billingShowPct, setBillingShowPct] = useState(false);
-  const [timePeriod, setTimePeriod] = useState(currentMonthParam());
+  const [timePeriod, setTimePeriod] = useState(() => new URLSearchParams(window.location.search).get('month') ?? currentMonthParam());
   const [cloudCosts, setCloudCosts] = useState<CloudCosts | null>(null);
   const [userBilling, setUserBilling] = useState<UserBilling | null>(null);
   const [cloudError, setCloudError] = useState<string | null>(null);
@@ -766,10 +766,10 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const [scatterY, setScatterY] = useState('margin/profit');
   const [showRegression, setShowRegression] = useState(false);
   const [trendsLoading, setTrendsLoading] = useState(false);
-  const [trendsStart, setTrendsStart] = useState(() => shiftMonthParam(currentMonthParam(), -12));
-  const [trendsEnd, setTrendsEnd] = useState(() => shiftMonthParam(currentMonthParam(), -1));
+  const [trendsStart, setTrendsStart] = useState(() => new URLSearchParams(window.location.search).get('trends_start') ?? shiftMonthParam(currentMonthParam(), -12));
+  const [trendsEnd, setTrendsEnd] = useState(() => new URLSearchParams(window.location.search).get('trends_end') ?? shiftMonthParam(currentMonthParam(), -1));
 
-  const [compareTimePeriod, setCompareTimePeriod] = useState<string | null>(null);
+  const [compareTimePeriod, setCompareTimePeriod] = useState<string | null>(() => new URLSearchParams(window.location.search).get('comparison_month'));
   const [compareCloudCosts, setCompareCloudCosts] = useState<CloudCosts | null>(null);
   const [compareUserBilling, setCompareUserBilling] = useState<UserBilling | null>(null);
   const [compareCloudError, setCompareCloudError] = useState<string | null>(null);
@@ -1231,6 +1231,16 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   }, [monitoringBaseUrl, batchBaseUrl]);
 
   useEffect(() => { fetchData(timePeriod); }, [fetchData, timePeriod]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('month', timePeriod);
+    if (compareTimePeriod) url.searchParams.set('comparison_month', compareTimePeriod);
+    else url.searchParams.delete('comparison_month');
+    url.searchParams.set('trends_start', trendsStart);
+    url.searchParams.set('trends_end', trendsEnd);
+    window.history.replaceState(null, '', url.toString());
+  }, [timePeriod, compareTimePeriod, trendsStart, trendsEnd]);
 
   useEffect(() => {
     if (!compareTimePeriod) {
