@@ -553,11 +553,14 @@ function toPctRows<T extends Record<string, unknown>>(rows: T[], keys: string[])
 }
 
 interface PieSlice { name: string; value: number; fill: string }
-function MiniPieChart({ data }: { data: PieSlice[] }) {
+function MiniPieChart({ data, size = 'md' }: { data: PieSlice[]; size?: 'sm' | 'md' }) {
+  const height = size === 'sm' ? 110 : 156;
+  const innerR = size === 'sm' ? 28 : 42;
+  const outerR = size === 'sm' ? 46 : 64;
   return (
-    <ResponsiveContainer width="100%" height={156}>
+    <ResponsiveContainer width="100%" height={height}>
       <PieChart>
-        <Pie data={data} cx="50%" cy="50%" innerRadius={42} outerRadius={64} dataKey="value" paddingAngle={2}>
+        <Pie data={data} cx="50%" cy="50%" innerRadius={innerR} outerRadius={outerR} dataKey="value" paddingAngle={2}>
           {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
         </Pie>
         <Tooltip formatter={(v) => typeof v === 'number' ? fmt(v) : ''} />
@@ -700,6 +703,13 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const [scatterY, setScatterY] = useState('margin/profit');
   const [showRegression, setShowRegression] = useState(false);
   const [trendsLoading, setTrendsLoading] = useState(false);
+
+  const [compareTimePeriod, setCompareTimePeriod] = useState<string | null>(null);
+  const [compareCloudCosts, setCompareCloudCosts] = useState<CloudCosts | null>(null);
+  const [compareUserBilling, setCompareUserBilling] = useState<UserBilling | null>(null);
+  const [compareCloudError, setCompareCloudError] = useState<string | null>(null);
+  const [compareBillingError, setCompareBillingError] = useState<string | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
 
   const overheadServices = useMemo(() => {
     const seen = new Set<string>();
@@ -1085,6 +1095,31 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   useEffect(() => { fetchData(timePeriod); }, [fetchData, timePeriod]);
 
   useEffect(() => {
+    if (!compareTimePeriod) {
+      setCompareCloudCosts(null);
+      setCompareUserBilling(null);
+      setCompareCloudError(null);
+      setCompareBillingError(null);
+      return;
+    }
+    setCompareLoading(true);
+    setCompareCloudCosts(null);
+    setCompareUserBilling(null);
+    setCompareCloudError(null);
+    setCompareBillingError(null);
+    Promise.allSettled([
+      fetchCloudCosts(monitoringBaseUrl, compareTimePeriod),
+      fetchUserBilling(batchBaseUrl, compareTimePeriod),
+    ]).then(([cloudResult, billingResult]) => {
+      if (cloudResult.status === 'fulfilled') setCompareCloudCosts(cloudResult.value);
+      else setCompareCloudError(cloudResult.reason instanceof Error ? cloudResult.reason.message : 'Failed to load cloud costs.');
+      if (billingResult.status === 'fulfilled') setCompareUserBilling(billingResult.value);
+      else setCompareBillingError(billingResult.reason instanceof Error ? billingResult.reason.message : 'Failed to load user billing.');
+      setCompareLoading(false);
+    });
+  }, [compareTimePeriod, monitoringBaseUrl, batchBaseUrl]);
+
+  useEffect(() => {
     if (tab !== 'trends') return;
     setTrendsLoading(true);
     const now = new Date();
@@ -1134,6 +1169,191 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     });
   }, [tab, monitoringBaseUrl, batchBaseUrl]);
 
+  const renderCloudBody = (
+    costs: CloudCosts | null,
+    err: string | null,
+    ldg: boolean,
+    period: string,
+    compact: boolean,
+  ) => {
+    if (err) return <p className="text-red-500 text-sm py-2">{err}</p>;
+    if (!costs) return ldg ? null : <p className="text-zinc-400 text-sm py-2">No data for {period}.</p>;
+
+    const mProducts = Object.entries(costs.user_compute_by_product)
+      .filter(([, v]) => v >= 10).sort(([, a], [, b]) => b - a).map(([p]) => p);
+    const hasOtherP = Object.values(costs.user_compute_by_product).some(v => v < 10);
+    const ucOtherCost = Object.entries(costs.user_compute_by_product)
+      .filter(([p]) => !mProducts.includes(p)).reduce((s, [, v]) => s + v, 0);
+    const overheadSvcsSorted = Object.entries(costs.non_compute_services)
+      .sort(([, a], [, b]) => b - a).map(([s]) => s);
+
+    const rows = (() => {
+      if (cloudView === 'summary') return (
+        <>
+          {([
+            { label: 'User-driven compute', value: costs.user_compute },
+            { label: 'Other compute', value: costs.other_compute },
+            { label: 'K8s', value: costs.k8s },
+            { label: 'Other overhead', value: costs.other_overhead },
+          ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
+            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.total)} />
+          ))}
+          <CostRow label="Total" value={costs.total} bold />
+        </>
+      );
+      if (cloudView === 'user_compute') return (
+        <>
+          {mProducts.map(p => (
+            <CostRow key={p} label={p} value={costs.user_compute_by_product[p] ?? 0} pctStr={pct(costs.user_compute_by_product[p] ?? 0, costs.user_compute)} indent />
+          ))}
+          {hasOtherP && ucOtherCost > 0 && <CostRow label="(Other)" value={ucOtherCost} pctStr={pct(ucOtherCost, costs.user_compute)} indent />}
+          <CostRow label="User-driven compute total" value={costs.user_compute} bold />
+        </>
+      );
+      if (cloudView === 'other_compute') return (
+        <>
+          {([
+            { label: 'CI / test batches', value: costs.batch_test },
+            { label: 'Dev batches', value: costs.batch_dev },
+            { label: 'Unknown / unlabeled', value: costs.unknown },
+          ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
+            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.other_compute)} indent />
+          ))}
+          <CostRow label="Other compute total" value={costs.other_compute} bold />
+        </>
+      );
+      if (cloudView === 'k8s') return (
+        <>
+          {([
+            { label: 'Compute nodes', value: costs.k8s_nodes },
+            { label: 'Management fee', value: costs.k8s_mgmt },
+          ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
+            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.k8s)} indent />
+          ))}
+          <CostRow label="K8s total" value={costs.k8s} bold />
+        </>
+      );
+      return (
+        <>
+          {overheadSvcsSorted.map(svc => (
+            <CostRow key={svc} label={svc} value={costs.non_compute_services[svc] ?? 0} pctStr={pct(costs.non_compute_services[svc] ?? 0, costs.other_overhead)} indent />
+          ))}
+          <CostRow label="Other overhead total" value={costs.other_overhead} bold />
+        </>
+      );
+    })();
+
+    const pieData: PieSlice[] = (() => {
+      if (cloudView === 'summary') return [
+        { name: 'User-driven compute', value: costs.user_compute, fill: '#0ea5e9' },
+        { name: 'Other compute', value: costs.other_compute, fill: '#f59e0b' },
+        { name: 'K8s', value: costs.k8s, fill: '#10b981' },
+        { name: 'Other overhead', value: costs.other_overhead, fill: '#8b5cf6' },
+      ];
+      if (cloudView === 'user_compute') return [
+        ...mProducts.map((p, i) => ({ name: p, value: costs.user_compute_by_product[p] ?? 0, fill: USER_COMPUTE_PALETTE[i % USER_COMPUTE_PALETTE.length] })),
+        ...(hasOtherP ? [{ name: '(Other)', value: ucOtherCost, fill: '#9ca3af' }] : []),
+      ];
+      if (cloudView === 'other_compute') return [
+        { name: 'CI / test batches', value: costs.batch_test, fill: '#f59e0b' },
+        { name: 'Dev batches', value: costs.batch_dev, fill: '#fcd34d' },
+        { name: 'Unknown / unlabeled', value: costs.unknown, fill: '#fef3c7' },
+      ];
+      if (cloudView === 'k8s') return [
+        { name: 'Compute nodes', value: costs.k8s_nodes, fill: '#059669' },
+        { name: 'Management fee', value: costs.k8s_mgmt, fill: '#6ee7b7' },
+      ];
+      return overheadSvcsSorted.map((svc, i) => ({ name: svc, value: costs.non_compute_services[svc] ?? 0, fill: OVERHEAD_PALETTE[i % OVERHEAD_PALETTE.length] }));
+    })();
+
+    return (
+      <div className="flex items-center gap-4">
+        <div className="flex-1">{rows}</div>
+        <div className={`${compact ? 'w-28' : 'w-40'} flex-shrink-0`}>
+          <MiniPieChart data={pieData} size={compact ? 'sm' : 'md'} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderBillingBody = (
+    billing: UserBilling | null,
+    err: string | null,
+    ldg: boolean,
+    period: string,
+    compact: boolean,
+  ) => {
+    if (err) return <p className="text-amber-600 text-sm py-2">{err}</p>;
+    if (!billing) return ldg ? null : <p className="text-zinc-400 text-sm py-2">No data for {period}.</p>;
+
+    const mResources = Object.entries(billing.resource_by_type)
+      .filter(([, v]) => v >= 10).sort(([, a], [, b]) => b - a).map(([r]) => r);
+    const hasOtherR = Object.values(billing.resource_by_type).some(v => v < 10);
+    const brOtherCost = Object.entries(billing.resource_by_type)
+      .filter(([r]) => !mResources.includes(r)).reduce((s, [, v]) => s + v, 0);
+
+    const rows = billingView === 'summary' ? (
+      <>
+        <CostRow label="Resource usage" value={billing.resource_cost} pctStr={pct(billing.resource_cost, billing.total)} />
+        <CostRow label="Service fees" value={billing.service_fee_cost} pctStr={pct(billing.service_fee_cost, billing.total)} />
+        <CostRow label="Total" value={billing.total} bold />
+      </>
+    ) : (
+      <>
+        {mResources.map(r => (
+          <CostRow key={r} label={r} value={billing.resource_by_type[r] ?? 0} pctStr={pct(billing.resource_by_type[r] ?? 0, billing.resource_cost)} indent />
+        ))}
+        {hasOtherR && brOtherCost > 0 && <CostRow label="(Other)" value={brOtherCost} pctStr={pct(brOtherCost, billing.resource_cost)} indent />}
+        <CostRow label="Resource usage total" value={billing.resource_cost} bold />
+      </>
+    );
+
+    const pieData: PieSlice[] = billingView === 'summary'
+      ? [
+          { name: 'Resource usage', value: billing.resource_cost, fill: '#10b981' },
+          { name: 'Service fees', value: billing.service_fee_cost, fill: '#6ee7b7' },
+        ]
+      : [
+          ...mResources.map((r, i) => ({ name: r, value: billing.resource_by_type[r] ?? 0, fill: BILLING_RESOURCE_PALETTE[i % BILLING_RESOURCE_PALETTE.length] })),
+          ...(hasOtherR ? [{ name: '(Other)', value: brOtherCost, fill: '#9ca3af' }] : []),
+        ];
+
+    return (
+      <div className="flex items-center gap-4">
+        <div className="flex-1">{rows}</div>
+        <div className={`${compact ? 'w-28' : 'w-40'} flex-shrink-0`}>
+          <MiniPieChart data={pieData} size={compact ? 'sm' : 'md'} />
+        </div>
+      </div>
+    );
+  };
+
+  const renderMarginBody = (costs: CloudCosts | null, billing: UserBilling | null) => {
+    if (!costs || !billing) return <p className="text-zinc-400 text-sm py-2">No data.</p>;
+    const netVal = billing.total - costs.total;
+    return (
+      <>
+        <CostRow label="Net (billed − cloud)" value={netVal} bold colorClass={netVal >= 0 ? 'text-emerald-600' : 'text-red-600'} />
+        <div className="flex justify-between py-2 border-b border-zinc-100">
+          <span className="text-zinc-700 font-semibold">Margin %</span>
+          <span className={`tabular-nums font-semibold ${netVal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{pct(netVal, costs.total)}</span>
+        </div>
+      </>
+    );
+  };
+
+  const renderFixedRatios = (costs: CloudCosts | null, billing: UserBilling | null) => {
+    if (!costs || !billing) return <p className="text-zinc-400 text-sm py-2">No data.</p>;
+    return (
+      <>
+        <RatioRow label="User compute as % of cloud" value={pct(costs.user_compute, costs.total)} />
+        <RatioRow label="Resource billing as % of user-driven compute" value={pct(billing.resource_cost, costs.user_compute)} />
+        <RatioRow label="Service fees as % of user billing" value={pct(billing.service_fee_cost, billing.total)} />
+        <RatioRow label="Service fees as % of overhead" value={pct(billing.service_fee_cost, costs.other_compute + costs.other_overhead)} />
+      </>
+    );
+  };
+
   const net = userBilling && cloudCosts ? userBilling.total - cloudCosts.total : null;
 
   const tabClass = (t: typeof tab) =>
@@ -1152,18 +1372,63 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
 
       {tab === 'monthly' && (
         <>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-zinc-500">Month</label>
-            <button onClick={() => setTimePeriod(p => shiftMonthParam(p, -1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">‹</button>
-            <input
-              type="month"
-              className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
-              value={monthParamToInputValue(timePeriod)}
-              onChange={e => { if (e.target.value) setTimePeriod(inputValueToMonthParam(e.target.value)); }}
-            />
-            <button onClick={() => setTimePeriod(p => shiftMonthParam(p, 1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">›</button>
-            {loading && <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>}
-          </div>
+          {compareTimePeriod !== null ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setTimePeriod(p => shiftMonthParam(p, -1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">‹</button>
+                <input
+                  type="month"
+                  className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                  value={monthParamToInputValue(timePeriod)}
+                  onChange={e => { if (e.target.value) setTimePeriod(inputValueToMonthParam(e.target.value)); }}
+                />
+                <button onClick={() => setTimePeriod(p => shiftMonthParam(p, 1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">›</button>
+                {loading && <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setCompareTimePeriod(p => shiftMonthParam(p!, -1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">‹</button>
+                <input
+                  type="month"
+                  className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                  value={monthParamToInputValue(compareTimePeriod)}
+                  onChange={e => { if (e.target.value) setCompareTimePeriod(inputValueToMonthParam(e.target.value)); }}
+                />
+                <button onClick={() => setCompareTimePeriod(p => shiftMonthParam(p!, 1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">›</button>
+                {compareLoading && <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>}
+                <button
+                  onClick={() => setCompareTimePeriod(null)}
+                  className="ml-1 p-1 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100"
+                  title="Remove comparison"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-zinc-500">Month</label>
+              <button onClick={() => setTimePeriod(p => shiftMonthParam(p, -1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">‹</button>
+              <input
+                type="month"
+                className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                value={monthParamToInputValue(timePeriod)}
+                onChange={e => { if (e.target.value) setTimePeriod(inputValueToMonthParam(e.target.value)); }}
+              />
+              <button onClick={() => setTimePeriod(p => shiftMonthParam(p, 1))} className="px-2 py-1 text-sm border border-zinc-300 rounded hover:bg-zinc-100">›</button>
+              {loading && <span className="text-xs text-zinc-400 animate-pulse">Loading…</span>}
+              <button
+                onClick={() => setCompareTimePeriod(shiftMonthParam(timePeriod, -1))}
+                className="ml-2 flex items-center gap-1.5 text-sm text-sky-600 hover:text-sky-700 border border-sky-200 hover:border-sky-400 rounded px-3 py-1.5 bg-sky-50 hover:bg-sky-100 transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                </svg>
+                Add month to compare
+              </button>
+            </div>
+          )}
 
           <Panel title="Cloud Costs" viewSelector={
             <select
@@ -1178,93 +1443,12 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
               <option value="other_overhead">Other overhead</option>
             </select>
           }>
-            {cloudError ? (
-              <p className="text-red-500 text-sm py-2">{cloudError}</p>
-            ) : cloudCosts ? (
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  {cloudView === 'summary' ? (
-                    <>
-                      {([
-                        { label: 'User-driven compute', value: cloudCosts.user_compute },
-                        { label: 'Other compute', value: cloudCosts.other_compute },
-                        { label: 'K8s', value: cloudCosts.k8s },
-                        { label: 'Other overhead', value: cloudCosts.other_overhead },
-                      ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
-                        <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, cloudCosts.total)} />
-                      ))}
-                      <CostRow label="Total" value={cloudCosts.total} bold />
-                    </>
-                  ) : cloudView === 'user_compute' ? (
-                    <>
-                      {userComputeMonthlyProducts.map(p => (
-                        <CostRow key={p} label={p} value={cloudCosts.user_compute_by_product[p] ?? 0} pctStr={pct(cloudCosts.user_compute_by_product[p] ?? 0, cloudCosts.user_compute)} indent />
-                      ))}
-                      {userComputeMonthlyHasOther && (() => { const v = ucOtherMonthly(cloudCosts.user_compute_by_product); return v > 0 ? <CostRow label="(Other)" value={v} pctStr={pct(v, cloudCosts.user_compute)} indent /> : null; })()}
-                      <CostRow label="User-driven compute total" value={cloudCosts.user_compute} bold />
-                    </>
-                  ) : cloudView === 'other_compute' ? (
-                    <>
-                      {([
-                        { label: 'CI / test batches', value: cloudCosts.batch_test },
-                        { label: 'Dev batches', value: cloudCosts.batch_dev },
-                        { label: 'Unknown / unlabeled', value: cloudCosts.unknown },
-                      ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
-                        <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, cloudCosts.other_compute)} indent />
-                      ))}
-                      <CostRow label="Other compute total" value={cloudCosts.other_compute} bold />
-                    </>
-                  ) : cloudView === 'k8s' ? (
-                    <>
-                      {([
-                        { label: 'Compute nodes', value: cloudCosts.k8s_nodes },
-                        { label: 'Management fee', value: cloudCosts.k8s_mgmt },
-                      ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
-                        <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, cloudCosts.k8s)} indent />
-                      ))}
-                      <CostRow label="K8s total" value={cloudCosts.k8s} bold />
-                    </>
-                  ) : (
-                    <>
-                      {[...overheadServices].sort((a, b) => (cloudCosts.non_compute_services[b] ?? 0) - (cloudCosts.non_compute_services[a] ?? 0)).map(svc => (
-                        <CostRow key={svc} label={svc} value={cloudCosts.non_compute_services[svc] ?? 0} pctStr={pct(cloudCosts.non_compute_services[svc] ?? 0, cloudCosts.other_overhead)} indent />
-                      ))}
-                      <CostRow label="Other overhead total" value={cloudCosts.other_overhead} bold />
-                    </>
-                  )}
-                </div>
-                <div className="w-40 flex-shrink-0">
-                  {cloudView === 'summary' ? (
-                    <MiniPieChart data={[
-                      { name: 'User-driven compute', value: cloudCosts.user_compute, fill: '#0ea5e9' },
-                      { name: 'Other compute', value: cloudCosts.other_compute, fill: '#f59e0b' },
-                      { name: 'K8s', value: cloudCosts.k8s, fill: '#10b981' },
-                      { name: 'Other overhead', value: cloudCosts.other_overhead, fill: '#8b5cf6' },
-                    ]} />
-                  ) : cloudView === 'user_compute' ? (
-                    <MiniPieChart data={[
-                      ...userComputeMonthlyProducts.map(p => ({ name: p, value: cloudCosts.user_compute_by_product[p] ?? 0, fill: userComputeMonthlyProductColor(p) })),
-                      ...(userComputeMonthlyHasOther ? [{ name: '(Other)', value: ucOtherMonthly(cloudCosts.user_compute_by_product), fill: '#9ca3af' }] : []),
-                    ]} />
-                  ) : cloudView === 'other_compute' ? (
-                    <MiniPieChart data={[
-                      { name: 'CI / test batches', value: cloudCosts.batch_test, fill: '#f59e0b' },
-                      { name: 'Dev batches', value: cloudCosts.batch_dev, fill: '#fcd34d' },
-                      { name: 'Unknown / unlabeled', value: cloudCosts.unknown, fill: '#fef3c7' },
-                    ]} />
-                  ) : cloudView === 'k8s' ? (
-                    <MiniPieChart data={[
-                      { name: 'Compute nodes', value: cloudCosts.k8s_nodes, fill: '#059669' },
-                      { name: 'Management fee', value: cloudCosts.k8s_mgmt, fill: '#6ee7b7' },
-                    ]} />
-                  ) : (
-                    <MiniPieChart data={
-                      overheadServices.map(svc => ({ name: svc, value: cloudCosts.non_compute_services[svc] ?? 0, fill: overheadServiceColor(svc) }))
-                    } />
-                  )}
-                </div>
+            {compareTimePeriod !== null ? (
+              <div className="grid grid-cols-2 divide-x divide-zinc-100">
+                <div className="pr-4">{renderCloudBody(cloudCosts, cloudError, loading, timePeriod, true)}</div>
+                <div className="pl-4">{renderCloudBody(compareCloudCosts, compareCloudError, compareLoading, compareTimePeriod, true)}</div>
               </div>
-            ) : !loading && <p className="text-zinc-400 text-sm py-2">No data for {timePeriod}.</p>}
+            ) : renderCloudBody(cloudCosts, cloudError, loading, timePeriod, false)}
           </Panel>
 
           <Panel title="User Billing" viewSelector={
@@ -1277,78 +1461,86 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
               <option value="resource_usage">Resource usage</option>
             </select>
           }>
-            {billingError ? (
-              <p className="text-amber-600 text-sm py-2">{billingError}</p>
-            ) : userBilling ? (
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  {billingView === 'summary' ? (
-                    <>
-                      <CostRow label="Resource usage" value={userBilling.resource_cost} pctStr={pct(userBilling.resource_cost, userBilling.total)} />
-                      <CostRow label="Service fees" value={userBilling.service_fee_cost} pctStr={pct(userBilling.service_fee_cost, userBilling.total)} />
-                      <CostRow label="Total" value={userBilling.total} bold />
-                    </>
-                  ) : (
-                    <>
-                      {billingResourcesMonthly.map(r => (
-                        <CostRow key={r} label={r} value={userBilling.resource_by_type[r] ?? 0} pctStr={pct(userBilling.resource_by_type[r] ?? 0, userBilling.resource_cost)} indent />
-                      ))}
-                      {billingResourcesMonthlyHasOther && (() => { const v = brOtherMonthly(userBilling.resource_by_type); return v > 0 ? <CostRow label="(Other)" value={v} pctStr={pct(v, userBilling.resource_cost)} indent /> : null; })()}
-                      <CostRow label="Resource usage total" value={userBilling.resource_cost} bold />
-                    </>
-                  )}
-                </div>
-                <div className="w-40 flex-shrink-0">
-                  {billingView === 'summary' ? (
-                    <MiniPieChart data={[
-                      { name: 'Resource usage', value: userBilling.resource_cost, fill: '#10b981' },
-                      { name: 'Service fees', value: userBilling.service_fee_cost, fill: '#6ee7b7' },
-                    ]} />
-                  ) : (
-                    <MiniPieChart data={[
-                      ...billingResourcesMonthly.map(r => ({ name: r, value: userBilling.resource_by_type[r] ?? 0, fill: billingResourceColor(r) })),
-                      ...(billingResourcesMonthlyHasOther ? [{ name: '(Other)', value: brOtherMonthly(userBilling.resource_by_type), fill: '#9ca3af' }] : []),
-                    ]} />
-                  )}
-                </div>
+            {compareTimePeriod !== null ? (
+              <div className="grid grid-cols-2 divide-x divide-zinc-100">
+                <div className="pr-4">{renderBillingBody(userBilling, billingError, loading, timePeriod, true)}</div>
+                <div className="pl-4">{renderBillingBody(compareUserBilling, compareBillingError, compareLoading, compareTimePeriod, true)}</div>
               </div>
-            ) : !loading && <p className="text-zinc-400 text-sm py-2">No data for {timePeriod}.</p>}
+            ) : renderBillingBody(userBilling, billingError, loading, timePeriod, false)}
           </Panel>
 
-          {userBilling && (
+          {(userBilling || compareTimePeriod !== null) && (
             <Panel title="Usage">
-              <RatioRow label="Core hours" value={fmtCoreHours(userBilling.service_fee_cost * 100)} />
+              {compareTimePeriod !== null ? (
+                <div className="grid grid-cols-2 divide-x divide-zinc-100">
+                  <div className="pr-4">
+                    {userBilling
+                      ? <RatioRow label="Core hours" value={fmtCoreHours(userBilling.service_fee_cost * 100)} />
+                      : <p className="text-zinc-400 text-sm py-2">—</p>}
+                  </div>
+                  <div className="pl-4">
+                    {compareUserBilling
+                      ? <RatioRow label="Core hours" value={fmtCoreHours(compareUserBilling.service_fee_cost * 100)} />
+                      : <p className="text-zinc-400 text-sm py-2">—</p>}
+                  </div>
+                </div>
+              ) : (
+                userBilling && <RatioRow label="Core hours" value={fmtCoreHours(userBilling.service_fee_cost * 100)} />
+              )}
             </Panel>
           )}
 
-          {net !== null && cloudCosts && userBilling && (
+          {(net !== null || compareTimePeriod !== null) && (
             <>
               <Panel title="Margin Analysis">
-                <CostRow
-                  label="Net (billed − cloud)"
-                  value={net}
-                  bold
-                  colorClass={net >= 0 ? 'text-emerald-600' : 'text-red-600'}
-                />
-                <div className="flex justify-between py-2 border-b border-zinc-100">
-                  <span className="text-zinc-700 font-semibold">Margin %</span>
-                  <span className={`tabular-nums font-semibold ${net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {pct(net, cloudCosts.total)}
-                  </span>
-                </div>
+                {compareTimePeriod !== null ? (
+                  <div className="grid grid-cols-2 divide-x divide-zinc-100">
+                    <div className="pr-4">{renderMarginBody(cloudCosts, userBilling)}</div>
+                    <div className="pl-4">{renderMarginBody(compareCloudCosts, compareUserBilling)}</div>
+                  </div>
+                ) : (
+                  net !== null && cloudCosts && userBilling && renderMarginBody(cloudCosts, userBilling)
+                )}
               </Panel>
               <Panel title="Ratios">
-                <RatioRow label="User compute as % of cloud" value={pct(cloudCosts.user_compute, cloudCosts.total)} />
-                <RatioRow label="Resource billing as % of user-driven compute" value={pct(userBilling.resource_cost, cloudCosts.user_compute)} />
-                <RatioRow label="Service fees as % of user billing" value={pct(userBilling.service_fee_cost, userBilling.total)} />
-                <RatioRow label="Service fees as % of overhead" value={pct(userBilling.service_fee_cost, cloudCosts.other_compute + cloudCosts.other_overhead)} />
-                <div className="border-t border-zinc-100 pt-1">
-                  <CustomRatioPicker fieldGroups={fieldGroups} num={customRatioNum} den={customRatioDen} onNumChange={setCustomRatioNum} onDenChange={setCustomRatioDen} />
-                  <RatioRow
-                    label={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`}
-                    value={pct(resolveMonthly(customRatioNum, cloudCosts, userBilling), resolveMonthly(customRatioDen, cloudCosts, userBilling))}
-                  />
-                </div>
+                {compareTimePeriod !== null ? (
+                  <>
+                    <div className="grid grid-cols-2 divide-x divide-zinc-100">
+                      <div className="pr-4">{renderFixedRatios(cloudCosts, userBilling)}</div>
+                      <div className="pl-4">{renderFixedRatios(compareCloudCosts, compareUserBilling)}</div>
+                    </div>
+                    <div className="border-t border-zinc-100 pt-1 mt-1">
+                      <CustomRatioPicker fieldGroups={fieldGroups} num={customRatioNum} den={customRatioDen} onNumChange={setCustomRatioNum} onDenChange={setCustomRatioDen} />
+                      <div className="grid grid-cols-2 divide-x divide-zinc-100">
+                        <div className="pr-4">
+                          <RatioRow
+                            label={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`}
+                            value={cloudCosts && userBilling ? pct(resolveMonthly(customRatioNum, cloudCosts, userBilling), resolveMonthly(customRatioDen, cloudCosts, userBilling)) : '—'}
+                          />
+                        </div>
+                        <div className="pl-4">
+                          <RatioRow
+                            label={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`}
+                            value={compareCloudCosts && compareUserBilling ? pct(resolveMonthly(customRatioNum, compareCloudCosts, compareUserBilling), resolveMonthly(customRatioDen, compareCloudCosts, compareUserBilling)) : '—'}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  net !== null && cloudCosts && userBilling && (
+                    <>
+                      {renderFixedRatios(cloudCosts, userBilling)}
+                      <div className="border-t border-zinc-100 pt-1">
+                        <CustomRatioPicker fieldGroups={fieldGroups} num={customRatioNum} den={customRatioDen} onNumChange={setCustomRatioNum} onDenChange={setCustomRatioDen} />
+                        <RatioRow
+                          label={`${fieldLabel(customRatioNum, fieldGroups)} as % of ${fieldLabel(customRatioDen, fieldGroups)}`}
+                          value={pct(resolveMonthly(customRatioNum, cloudCosts, userBilling), resolveMonthly(customRatioDen, cloudCosts, userBilling))}
+                        />
+                      </div>
+                    </>
+                  )
+                )}
               </Panel>
             </>
           )}
