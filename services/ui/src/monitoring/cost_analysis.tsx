@@ -122,6 +122,17 @@ function monthParamToLabel(param: string): string {
   return new Date(parseInt(yyyy), parseInt(mm) - 1, 1).toLocaleString('en-US', { month: 'short', year: 'numeric' });
 }
 
+function monthsBetween(start: string, end: string): string[] {
+  const toOrd = (p: string) => { const [mm, yyyy] = p.split('/'); return parseInt(yyyy) * 12 + parseInt(mm); };
+  const months: string[] = [];
+  let current = start;
+  while (toOrd(current) <= toOrd(end)) {
+    months.push(current);
+    current = shiftMonthParam(current, 1);
+  }
+  return months;
+}
+
 // --- Custom ratio field helpers ---
 
 interface FieldGroup { group: string; fields: { id: string; label: string }[] }
@@ -703,6 +714,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const [scatterY, setScatterY] = useState('margin/profit');
   const [showRegression, setShowRegression] = useState(false);
   const [trendsLoading, setTrendsLoading] = useState(false);
+  const [trendsStart, setTrendsStart] = useState(() => shiftMonthParam(currentMonthParam(), -12));
+  const [trendsEnd, setTrendsEnd] = useState(() => shiftMonthParam(currentMonthParam(), -1));
 
   const [compareTimePeriod, setCompareTimePeriod] = useState<string | null>(null);
   const [compareCloudCosts, setCompareCloudCosts] = useState<CloudCosts | null>(null);
@@ -1119,16 +1132,10 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     });
   }, [compareTimePeriod, monitoringBaseUrl, batchBaseUrl]);
 
-  useEffect(() => {
-    if (tab !== 'trends') return;
+  const fetchTrends = useCallback(async (start: string, end: string) => {
     setTrendsLoading(true);
-    const now = new Date();
-    const months: string[] = [];
-    for (let i = 12; i >= 1; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push(`${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`);
-    }
-    Promise.all(
+    const months = monthsBetween(start, end);
+    const points = await Promise.all(
       months.map(async (m) => {
         const [cloud, billing] = await Promise.allSettled([
           fetchCloudCosts(monitoringBaseUrl, m),
@@ -1163,11 +1170,10 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           overhead_resource_pct: b && b.resource_cost > 0 ? (overhead / b.resource_cost) * 100 : null,
         };
       })
-    ).then(points => {
-      setTrendData(points);
-      setTrendsLoading(false);
-    });
-  }, [tab, monitoringBaseUrl, batchBaseUrl]);
+    );
+    setTrendData(points);
+    setTrendsLoading(false);
+  }, [monitoringBaseUrl, batchBaseUrl]);
 
   const renderCloudBody = (
     costs: CloudCosts | null,
@@ -1548,8 +1554,38 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
       )}
 
       {tab === 'trends' && (
+        <>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-zinc-500">From</label>
+            <input
+              type="month"
+              className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              value={monthParamToInputValue(trendsStart)}
+              onChange={e => { if (e.target.value) setTrendsStart(inputValueToMonthParam(e.target.value)); }}
+            />
+            <label className="text-sm text-zinc-500">to</label>
+            <input
+              type="month"
+              className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              value={monthParamToInputValue(trendsEnd)}
+              onChange={e => { if (e.target.value) setTrendsEnd(inputValueToMonthParam(e.target.value)); }}
+            />
+            <button
+              onClick={() => fetchTrends(trendsStart, trendsEnd)}
+              disabled={trendsLoading}
+              className="px-4 py-1.5 text-sm font-medium rounded border border-sky-500 bg-sky-500 text-white hover:bg-sky-600 hover:border-sky-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {trendsLoading ? 'Loading…' : 'Compare'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {tab === 'trends' && (
         trendsLoading ? (
           <p className="text-zinc-400 text-sm py-4 text-center animate-pulse">Loading…</p>
+        ) : trendData.length === 0 ? (
+          <p className="text-zinc-400 text-sm py-8 text-center">Select a date range above and press Compare to load data.</p>
         ) : (
           <div>
             <Panel title="Cloud Costs" collapsible viewSelector={
@@ -1842,7 +1878,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
         )
       )}
 
-      {tab === 'trends' && (
+      {tab === 'trends' && trendData.length > 0 && (
         <div className="mt-6 flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
           <span className="mt-0.5 shrink-0 text-sky-400">ℹ</span>
           <span>
