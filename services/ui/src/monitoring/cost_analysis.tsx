@@ -26,6 +26,7 @@ interface CloudCosts {
 }
 
 interface BillingRow {
+  billing_project: string;
   resource: string;
   cost: number;
 }
@@ -35,6 +36,9 @@ interface UserBilling {
   resource_cost: number;
   service_fee_cost: number;
   resource_by_type: Record<string, number>;
+  billing_by_project: Record<string, number>;
+  billing_project_count: number;
+  billing_project_concentration: number;
 }
 
 interface MonthDataPoint {
@@ -52,6 +56,9 @@ interface MonthDataPoint {
   non_compute_services: Record<string, number>;
   user_compute_by_product: Record<string, number>;
   resource_by_type: Record<string, number>;
+  billing_by_project: Record<string, number>;
+  billing_project_count: number;
+  billing_project_concentration: number;
   user_billing: number;
   service_fees: number;
   resource_cost: number;
@@ -96,6 +103,15 @@ function fmt(dollars: number): string {
   return dollars.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
 }
 
+function fmtDelta(delta: number, base: number): string {
+  const sign = delta >= 0 ? '+' : '−';
+  const absFmt = fmt(Math.abs(delta));
+  if (base === 0 || !isFinite(base / delta)) return `${sign}${absFmt}`;
+  const pctVal = Math.abs(delta / base) * 100;
+  const pctStr = pctVal < 10 ? pctVal.toFixed(1) : Math.round(pctVal).toString();
+  return `${sign}${absFmt} / ${sign}${pctStr}%`;
+}
+
 function makeYDollarFormatter(domainMax: number): (v: number) => string {
   if (domainMax < 1000) return v => `$${Math.round(v)}`;
   if (domainMax < 10000) return v => `$${(v / 1000).toFixed(1)}k`;
@@ -137,7 +153,7 @@ function monthsBetween(start: string, end: string): string[] {
 
 interface FieldGroup { group: string; fields: { id: string; label: string }[] }
 
-function buildFieldGroups(products: string[], nonComputeServices: string[], resourceTypes: string[]): FieldGroup[] {
+function buildFieldGroups(products: string[], nonComputeServices: string[], resourceTypes: string[], billingProjects: string[]): FieldGroup[] {
   return [
     {
       group: 'Cloud Costs',
@@ -163,6 +179,9 @@ function buildFieldGroups(products: string[], nonComputeServices: string[], reso
         { id: 'billing/resource_cost', label: 'User Billing / Resource cost' },
         ...resourceTypes.map(r => ({ id: `billing/resource/${r}`, label: `User Billing / Resource cost / ${r}` })),
         { id: 'billing/service_fees', label: 'User Billing / Service fees' },
+        { id: 'billing/project_count', label: 'User Billing / Billing Projects / Active count' },
+        { id: 'billing/project_concentration', label: 'User Billing / Billing Projects / Concentration' },
+        ...billingProjects.map(p => ({ id: `billing/project/${p}`, label: `User Billing / Billing Projects / ${p}` })),
       ],
     },
     {
@@ -206,6 +225,9 @@ function resolveMonthly(id: string, c: CloudCosts, b: UserBilling): number {
   if (id === 'billing/resource_cost') return b.resource_cost;
   if (id.startsWith('billing/resource/')) return b.resource_by_type[id.slice(17)] ?? 0;
   if (id === 'billing/service_fees') return b.service_fee_cost;
+  if (id === 'billing/project_count') return b.billing_project_count;
+  if (id === 'billing/project_concentration') return b.billing_project_concentration;
+  if (id.startsWith('billing/project/')) return b.billing_by_project[id.slice(16)] ?? 0;
   if (id === 'margin/profit') return b.total - c.total;
   if (id === 'margin/margin_pct') return b.total === 0 ? 0 : ((b.total - c.total) / b.total) * 100;
   if (id === 'derived/core_hours') return b.service_fee_cost * 100;
@@ -229,6 +251,9 @@ function resolveTrend(id: string, p: MonthDataPoint): number {
   if (id === 'billing/resource_cost') return p.resource_cost;
   if (id.startsWith('billing/resource/')) return (p.resource_by_type ?? {})[id.slice(17)] ?? 0;
   if (id === 'billing/service_fees') return p.service_fees;
+  if (id === 'billing/project_count') return p.billing_project_count;
+  if (id === 'billing/project_concentration') return p.billing_project_concentration;
+  if (id.startsWith('billing/project/')) return (p.billing_by_project ?? {})[id.slice(16)] ?? 0;
   if (id === 'margin/profit') return p.profit;
   if (id === 'margin/margin_pct') return p.user_billing === 0 ? 0 : (p.profit / p.user_billing) * 100;
   if (id === 'derived/core_hours') return p.service_fees * 100;
@@ -288,8 +313,10 @@ async function fetchUserBilling(batchBaseUrl: string, period: string): Promise<U
   let total = 0;
   let service_fee_cost = 0;
   const resource_by_type: Record<string, number> = {};
+  const billing_by_project: Record<string, number> = {};
   for (const row of rows) {
     total += row.cost;
+    billing_by_project[row.billing_project] = (billing_by_project[row.billing_project] ?? 0) + row.cost;
     if (row.resource.startsWith('service-fee')) {
       service_fee_cost += row.cost;
     } else {
@@ -300,7 +327,14 @@ async function fetchUserBilling(batchBaseUrl: string, period: string): Promise<U
       resource_by_type[key] = (resource_by_type[key] ?? 0) + row.cost;
     }
   }
-  return { total, resource_cost: total - service_fee_cost, service_fee_cost, resource_by_type };
+  const billing_project_count = Object.keys(billing_by_project).length;
+  const projectCosts = Object.values(billing_by_project);
+  const projectTotal = projectCosts.reduce((a, b) => a + b, 0);
+  const hhi = projectTotal > 0 ? projectCosts.reduce((s, c) => s + (c / projectTotal) ** 2, 0) : 0;
+  const billing_project_concentration = billing_project_count > 1
+    ? (hhi - 1 / billing_project_count) / (1 - 1 / billing_project_count)
+    : billing_project_count === 1 ? 1 : 0;
+  return { total, resource_cost: total - service_fee_cost, service_fee_cost, resource_by_type, billing_by_project, billing_project_count, billing_project_concentration };
 }
 
 // --- Components ---
@@ -351,13 +385,16 @@ function Panel({ title, subtitle, collapsible = false, viewSelector, children }:
   );
 }
 
-interface CostRowProps { label: string; value: number; pctStr?: string; indent?: boolean; bold?: boolean; colorClass?: string }
-function CostRow({ label, value, pctStr, indent = false, bold = false, colorClass }: CostRowProps) {
+interface CostRowProps { label: string; value: number; pctStr?: string; indent?: boolean; bold?: boolean; colorClass?: string; delta?: number }
+function CostRow({ label, value, pctStr, indent = false, bold = false, colorClass, delta }: CostRowProps) {
   return (
     <div className={`flex items-center py-2 border-b border-zinc-100 last:border-0 ${indent ? 'pl-6' : ''}`}>
       <span className={`flex-1 min-w-0 text-zinc-700 ${bold ? 'font-semibold' : ''}`}>{label}</span>
       <span className="shrink-0 w-16 text-right tabular-nums text-zinc-400 text-sm">{pctStr ?? ''}</span>
       <span className={`shrink-0 w-28 text-right tabular-nums ${bold ? 'font-semibold' : ''} ${colorClass ?? ''}`}>{fmt(value)}</span>
+      {delta !== undefined && (
+        <span className={`shrink-0 w-40 text-right tabular-nums text-zinc-400 text-sm ${bold ? 'font-semibold' : ''}`}>{fmtDelta(delta, value - delta)}</span>
+      )}
     </div>
   );
 }
@@ -380,8 +417,9 @@ interface ChartTooltipProps {
   seriesStats?: SeriesStats;
   format: (v: number) => string;
   stacked?: boolean;
+  threshold?: number;
 }
-function ChartTooltip({ active, payload, label, stats, seriesStats, format, stacked = false }: ChartTooltipProps) {
+function ChartTooltip({ active, payload, label, stats, seriesStats, format, stacked = false, threshold }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
   const numVal = (v?: number | string | readonly (number | string)[]) => typeof v === 'number' ? v : 0;
   const sigmaStr = (v: number, s: { mean: number; std: number } | null | undefined) => {
@@ -389,12 +427,15 @@ function ChartTooltip({ active, payload, label, stats, seriesStats, format, stac
     const z = (v - s.mean) / s.std;
     return `μ${z >= 0 ? '+' : '−'}${Math.abs(z).toFixed(1)}σ`;
   };
+  const sorted = [...payload].sort((a, b) => numVal(b.value) - numVal(a.value));
+  const visible = threshold !== undefined ? sorted.filter(p => numVal(p.value) >= threshold) : sorted;
+  const otherTotal = threshold !== undefined ? sorted.filter(p => numVal(p.value) < threshold).reduce((s, p) => s + numVal(p.value), 0) : 0;
   const total = payload.reduce((s, p) => s + numVal(p.value), 0);
   const totalSigma = stacked && payload.length > 1 ? sigmaStr(total, stats) : null;
   return (
     <div className="bg-white border border-zinc-200 rounded shadow-lg px-3 py-2 text-sm min-w-max">
       <p className="font-medium text-zinc-700 mb-1">{label}</p>
-      {payload.map((p, i) => {
+      {visible.map((p, i) => {
         const val = numVal(p.value);
         const key = typeof p.dataKey === 'string' ? p.dataKey : undefined;
         const sg = sigmaStr(val, key && seriesStats ? seriesStats[key] : (payload.length === 1 ? stats : null));
@@ -409,6 +450,16 @@ function ChartTooltip({ active, payload, label, stats, seriesStats, format, stac
           </div>
         );
       })}
+      {threshold !== undefined && otherTotal > 0 && (
+        <div className="flex items-center gap-3 text-xs py-0.5">
+          <span className="flex items-center gap-1 text-zinc-400 flex-1">
+            <span>■</span>
+            (Other)
+          </span>
+          <span className="tabular-nums font-medium text-zinc-800">{format(otherTotal)}</span>
+          <span className="tabular-nums text-indigo-400 w-16 text-right" />
+        </div>
+      )}
       {stacked && payload.length > 1 && (
         <div className="flex items-center gap-3 text-xs pt-1 mt-0.5 border-t border-zinc-100">
           <span className="text-zinc-500 font-medium flex-1">Total</span>
@@ -614,6 +665,7 @@ function useLegendToggle(allKeys: readonly string[]) {
 
 const RATIO_PRESETS: { label: string; num: string; den: string }[] = [
   { label: 'Resource billing as % of user compute',  num: 'billing/resource_cost',  den: 'cloud/user_compute' },
+  { label: 'Approximate pool utilization',           num: 'billing/resource/compute/n1-preemptible/us-central1', den: 'cloud/user_compute/Spot Preemptible N1 Predefined Instance Core running in Americas' },
   { label: 'Service fees as % of user bill',          num: 'billing/service_fees',   den: 'billing/total' },
   { label: 'Service fees as % of other overhead',    num: 'billing/service_fees',   den: 'cloud/other_overhead' },
   { label: 'Other overhead as % of cloud costs',     num: 'cloud/other_overhead',   den: 'cloud/total' },
@@ -693,7 +745,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     window.history.replaceState(null, '', url.toString());
   }, []);
   const [cloudView, setCloudView] = useState<'summary' | 'user_compute' | 'other_compute' | 'k8s' | 'other_overhead'>('summary');
-  const [billingView, setBillingView] = useState<'summary' | 'resource_usage'>('summary');
+  const [billingView, setBillingView] = useState<'summary' | 'resource_usage' | 'billing_project'>('summary');
   const cloudCostsToggle = useLegendToggle(['user_compute', 'other_compute', 'k8s', 'other_overhead'] as const);
   const otherComputeToggle = useLegendToggle(['batch_test', 'batch_dev', 'unknown'] as const);
   const k8sToggle = useLegendToggle(['k8s_nodes', 'k8s_mgmt'] as const);
@@ -763,6 +815,25 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     [billingResourcesMonthly]
   );
 
+  const { billingProjects, billingProjectsHasOther } = useMemo(() => {
+    const maxes: Record<string, number> = {};
+    for (const d of trendData) {
+      for (const [p, v] of Object.entries(d.billing_by_project ?? {})) maxes[p] = Math.max(maxes[p] ?? 0, v);
+    }
+    if (userBilling) {
+      for (const [p, v] of Object.entries(userBilling.billing_by_project)) maxes[p] = Math.max(maxes[p] ?? 0, v);
+    }
+    const projects = Object.keys(maxes).filter(p => maxes[p] >= 10).sort();
+    const hasOther = Object.keys(maxes).some(p => maxes[p] < 10);
+    return { billingProjects: projects, billingProjectsHasOther: hasOther };
+  }, [trendData, userBilling]);
+
+  const bpOther = useCallback(
+    (byProject: Record<string, number>) =>
+      Object.entries(byProject).filter(([p]) => !billingProjects.includes(p)).reduce((s, [, v]) => s + v, 0),
+    [billingProjects]
+  );
+
   const { userComputeProducts, userComputeHasOther } = useMemo(() => {
     const maxes: Record<string, number> = {};
     for (const d of trendData) {
@@ -787,21 +858,31 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   }, [cloudCosts]);
 
   const fieldGroups = useMemo<FieldGroup[]>(() => {
-    const products = new Set<string>();
-    const nonComputeServices = new Set<string>();
-    const resourceTypes = new Set<string>();
+    const productMax: Record<string, number> = {};
+    const nonComputeMax: Record<string, number> = {};
+    const resourceMax: Record<string, number> = {};
+    const projectMax: Record<string, number> = {};
+    const track = (maxes: Record<string, number>, entries: Record<string, number>) => {
+      for (const [k, v] of Object.entries(entries)) maxes[k] = Math.max(maxes[k] ?? 0, v);
+    };
     if (cloudCosts) {
-      Object.keys(cloudCosts.user_compute_by_product).forEach(p => products.add(p));
-      Object.keys(cloudCosts.non_compute_services).forEach(s => nonComputeServices.add(s));
+      track(productMax, cloudCosts.user_compute_by_product);
+      track(nonComputeMax, cloudCosts.non_compute_services);
     }
-    if (userBilling) Object.keys(userBilling.resource_by_type).forEach(r => resourceTypes.add(r));
+    if (userBilling) {
+      track(resourceMax, userBilling.resource_by_type);
+      track(projectMax, userBilling.billing_by_project);
+    }
+    if (compareUserBilling) track(projectMax, compareUserBilling.billing_by_project);
     trendData.forEach(d => {
-      Object.keys(d.user_compute_by_product ?? {}).forEach(p => products.add(p));
-      Object.keys(d.non_compute_services ?? {}).forEach(s => nonComputeServices.add(s));
-      Object.keys(d.resource_by_type ?? {}).forEach(r => resourceTypes.add(r));
+      track(productMax, d.user_compute_by_product ?? {});
+      track(nonComputeMax, d.non_compute_services ?? {});
+      track(resourceMax, d.resource_by_type ?? {});
+      track(projectMax, d.billing_by_project ?? {});
     });
-    return buildFieldGroups([...products].sort(), [...nonComputeServices].sort(), [...resourceTypes].sort());
-  }, [cloudCosts, userBilling, trendData]);
+    const over10 = (maxes: Record<string, number>) => Object.keys(maxes).filter(k => maxes[k] >= 10).sort();
+    return buildFieldGroups(over10(productMax), over10(nonComputeMax), over10(resourceMax), over10(projectMax));
+  }, [cloudCosts, userBilling, compareUserBilling, trendData]);
 
   const ucOtherMonthly = useCallback(
     (byProduct: Record<string, number>) =>
@@ -832,14 +913,17 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
 
   const billingSeriesKeys = useMemo(() => {
     if (billingView === 'resource_usage') return [...billingResources, ...(billingResourcesHasOther ? ['(Other)'] : [])];
+    if (billingView === 'billing_project') return [...billingProjects, ...(billingProjectsHasOther ? ['(Other)'] : [])];
     return ['resource_cost', 'service_fees'];
-  }, [billingView, billingResources, billingResourcesHasOther]);
+  }, [billingView, billingResources, billingResourcesHasOther, billingProjects, billingProjectsHasOther]);
 
   const billingBaseData = useMemo(() => {
     if (billingView === 'resource_usage')
       return trendData.map(d => ({ month: d.month, ...Object.fromEntries(billingResources.map(r => [r, d.resource_by_type[r] ?? 0])), ...(billingResourcesHasOther ? { '(Other)': brOther(d.resource_by_type) } : {}) }));
+    if (billingView === 'billing_project')
+      return trendData.map(d => ({ month: d.month, ...Object.fromEntries(billingProjects.map(p => [p, (d.billing_by_project ?? {})[p] ?? 0])), ...(billingProjectsHasOther ? { '(Other)': bpOther(d.billing_by_project ?? {}) } : {}) }));
     return trendData as unknown[];
-  }, [billingView, trendData, billingResources, billingResourcesHasOther, brOther]);
+  }, [billingView, trendData, billingResources, billingResourcesHasOther, brOther, billingProjects, billingProjectsHasOther, bpOther]);
 
   const billingChartData = useMemo(
     () => billingShowPct ? toPctRows(billingBaseData as Record<string, unknown>[], billingSeriesKeys) : billingBaseData,
@@ -871,6 +955,32 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
 
   const BILLING_RESOURCE_PALETTE = ['#10b981', '#059669', '#34d399', '#047857', '#6ee7b7', '#065f46', '#a7f3d0', '#14b8a6', '#0d9488', '#2dd4bf'];
   const billingResourceColor = (r: string) => r === '(Other)' ? '#9ca3af' : BILLING_RESOURCE_PALETTE[billingResources.indexOf(r) % BILLING_RESOURCE_PALETTE.length];
+
+  const BILLING_PROJECT_PALETTE = ['#f97316', '#ea580c', '#fb923c', '#c2410c', '#fdba74', '#9a3412', '#fed7aa', '#d97706', '#fbbf24', '#b45309'];
+  const billingProjectColor = (p: string) => p === '(Other)' ? '#9ca3af' : BILLING_PROJECT_PALETTE[billingProjects.indexOf(p) % BILLING_PROJECT_PALETTE.length];
+
+  const billingProjectAllKeys = useMemo(
+    () => [...billingProjects, ...(billingProjectsHasOther ? ['(Other)'] : [])],
+    [billingProjects, billingProjectsHasOther]
+  );
+  const [billingProjectHidden, setBillingProjectHidden] = useState<Set<string>>(new Set());
+  const onBillingProjectLegendClick = useCallback(
+    (e: { dataKey?: string | number | ((obj: unknown) => unknown) }, _index: number, event: { shiftKey: boolean }) => {
+      if (typeof e.dataKey !== 'string') return;
+      const key = e.dataKey;
+      if (event.shiftKey) {
+        setBillingProjectHidden(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+      } else {
+        setBillingProjectHidden(prev => {
+          const visible = billingProjectAllKeys.filter(k => !prev.has(k));
+          const isSolo = visible.length === 1 && visible[0] === key;
+          return isSolo ? new Set() : new Set(billingProjectAllKeys.filter(k => k !== key));
+        });
+      }
+    },
+    [billingProjectAllKeys]
+  );
+  const isBillingProjectHidden = (key: string) => billingProjectHidden.has(key);
 
   const billingResourceAllKeys = useMemo(
     () => [...billingResources, ...(billingResourcesHasOther ? ['(Other)'] : [])],
@@ -949,8 +1059,11 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
       billingView === 'resource_usage'
         ? billingResources.reduce((s, r) => s + (isBillingResourceHidden(r) ? 0 : (d.resource_by_type[r] ?? 0)), 0) +
           (billingResourcesHasOther && !isBillingResourceHidden('(Other)') ? brOther(d.resource_by_type) : 0)
-        : (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
-          (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
+        : billingView === 'billing_project'
+          ? billingProjects.reduce((s, p) => s + (isBillingProjectHidden(p) ? 0 : ((d.billing_by_project ?? {})[p] ?? 0)), 0) +
+            (billingProjectsHasOther && !isBillingProjectHidden('(Other)') ? bpOther(d.billing_by_project ?? {}) : 0)
+          : (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
+            (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
     ),
   );
 
@@ -1002,18 +1115,26 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     billingView === 'resource_usage'
       ? billingResources.reduce((s, r) => s + (isBillingResourceHidden(r) ? 0 : (d.resource_by_type[r] ?? 0)), 0) +
         (billingResourcesHasOther && !isBillingResourceHidden('(Other)') ? brOther(d.resource_by_type) : 0)
-      : (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
-        (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
+      : billingView === 'billing_project'
+        ? billingProjects.reduce((s, p) => s + (isBillingProjectHidden(p) ? 0 : ((d.billing_by_project ?? {})[p] ?? 0)), 0) +
+          (billingProjectsHasOther && !isBillingProjectHidden('(Other)') ? bpOther(d.billing_by_project ?? {}) : 0)
+        : (billingToggle.isHidden('resource_cost') ? 0 : d.resource_cost) +
+          (billingToggle.isHidden('service_fees') ? 0 : d.service_fees)
   ));
   const billingSeriesStats: SeriesStats = billingView === 'resource_usage'
     ? {
         ...Object.fromEntries(billingResources.map(r => [r, computeStats(trendData.map(d => d.resource_by_type[r] ?? 0))])),
         ...(billingResourcesHasOther ? { '(Other)': computeStats(trendData.map(d => brOther(d.resource_by_type))) } : {}),
       }
-    : {
-        resource_cost: computeStats(trendData.map(d => d.resource_cost)),
-        service_fees: computeStats(trendData.map(d => d.service_fees)),
-      };
+    : billingView === 'billing_project'
+      ? {
+          ...Object.fromEntries(billingProjects.map(p => [p, computeStats(trendData.map(d => (d.billing_by_project ?? {})[p] ?? 0))])),
+          ...(billingProjectsHasOther ? { '(Other)': computeStats(trendData.map(d => bpOther(d.billing_by_project ?? {}))) } : {}),
+        }
+      : {
+          resource_cost: computeStats(trendData.map(d => d.resource_cost)),
+          service_fees: computeStats(trendData.map(d => d.service_fees)),
+        };
   const rowNum = (row: Record<string, unknown>, k: string) => typeof row[k] === 'number' ? row[k] as number : 0;
 
   const cloudPctRows = cloudChartData as Record<string, unknown>[];
@@ -1042,11 +1163,15 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const billingPctStats = computeStats(billingPctRows.map(row =>
     billingView === 'resource_usage'
       ? [...billingResources.filter(r => !isBillingResourceHidden(r)), ...(billingResourcesHasOther && !isBillingResourceHidden('(Other)') ? ['(Other)'] : [])].reduce((s, k) => s + rowNum(row, k), 0)
-      : (['resource_cost', 'service_fees'] as const).filter(k => !billingToggle.isHidden(k)).reduce((s, k) => s + rowNum(row, k), 0)
+      : billingView === 'billing_project'
+        ? [...billingProjects.filter(p => !isBillingProjectHidden(p)), ...(billingProjectsHasOther && !isBillingProjectHidden('(Other)') ? ['(Other)'] : [])].reduce((s, k) => s + rowNum(row, k), 0)
+        : (['resource_cost', 'service_fees'] as const).filter(k => !billingToggle.isHidden(k)).reduce((s, k) => s + rowNum(row, k), 0)
   ));
   const billingPctSeriesStats: SeriesStats = billingView === 'resource_usage'
     ? { ...Object.fromEntries(billingResources.map(r => [r, computeStats(billingPctRows.map(row => rowNum(row, r)))])), ...(billingResourcesHasOther ? { '(Other)': computeStats(billingPctRows.map(row => rowNum(row, '(Other)'))) } : {}) }
-    : { resource_cost: computeStats(billingPctRows.map(row => rowNum(row, 'resource_cost'))), service_fees: computeStats(billingPctRows.map(row => rowNum(row, 'service_fees'))) };
+    : billingView === 'billing_project'
+      ? { ...Object.fromEntries(billingProjects.map(p => [p, computeStats(billingPctRows.map(row => rowNum(row, p)))])), ...(billingProjectsHasOther ? { '(Other)': computeStats(billingPctRows.map(row => rowNum(row, '(Other)'))) } : {}) }
+      : { resource_cost: computeStats(billingPctRows.map(row => rowNum(row, 'resource_cost'))), service_fees: computeStats(billingPctRows.map(row => rowNum(row, 'service_fees'))) };
 
   const profitStats = computeStats(trendData.map(d => d.profit));
   const coreHoursData = useMemo(() => trendData.map(d => ({ month: d.month, core_hours: d.service_fees * 100 })), [trendData]);
@@ -1159,6 +1284,9 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           non_compute_services: c?.non_compute_services ?? {},
           user_compute_by_product: c?.user_compute_by_product ?? {},
           resource_by_type: b?.resource_by_type ?? {},
+          billing_by_project: b?.billing_by_project ?? {},
+          billing_project_count: b?.billing_project_count ?? 0,
+          billing_project_concentration: b?.billing_project_concentration ?? 0,
           user_billing: b?.total ?? 0,
           service_fees: b?.service_fee_cost ?? 0,
           resource_cost: b?.resource_cost ?? 0,
@@ -1181,9 +1309,12 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     ldg: boolean,
     period: string,
     compact: boolean,
+    baseCosts?: CloudCosts | null,
   ) => {
     if (err) return <p className="text-red-500 text-sm py-2">{err}</p>;
     if (!costs) return ldg ? null : <p className="text-zinc-400 text-sm py-2">No data for {period}.</p>;
+
+    const d = (v: number, baseV: number) => baseCosts != null ? v - baseV : undefined;
 
     const mProducts = Object.entries(costs.user_compute_by_product)
       .filter(([, v]) => v >= 10).sort(([, a], [, b]) => b - a).map(([p]) => p);
@@ -1197,54 +1328,59 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
       if (cloudView === 'summary') return (
         <>
           {([
-            { label: 'User-driven compute', value: costs.user_compute },
-            { label: 'Other compute', value: costs.other_compute },
-            { label: 'K8s', value: costs.k8s },
-            { label: 'Other overhead', value: costs.other_overhead },
+            { label: 'User-driven compute', value: costs.user_compute, baseV: baseCosts?.user_compute ?? 0 },
+            { label: 'Other compute', value: costs.other_compute, baseV: baseCosts?.other_compute ?? 0 },
+            { label: 'K8s', value: costs.k8s, baseV: baseCosts?.k8s ?? 0 },
+            { label: 'Other overhead', value: costs.other_overhead, baseV: baseCosts?.other_overhead ?? 0 },
           ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
-            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.total)} />
+            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.total)} delta={d(r.value, r.baseV)} />
           ))}
-          <CostRow label="Total" value={costs.total} bold />
+          <CostRow label="Total" value={costs.total} bold delta={d(costs.total, baseCosts?.total ?? 0)} />
         </>
       );
       if (cloudView === 'user_compute') return (
         <>
-          {mProducts.map(p => (
-            <CostRow key={p} label={p} value={costs.user_compute_by_product[p] ?? 0} pctStr={pct(costs.user_compute_by_product[p] ?? 0, costs.user_compute)} indent />
-          ))}
-          {hasOtherP && ucOtherCost > 0 && <CostRow label="(Other)" value={ucOtherCost} pctStr={pct(ucOtherCost, costs.user_compute)} indent />}
-          <CostRow label="User-driven compute total" value={costs.user_compute} bold />
+          {mProducts.map(p => {
+            const v = costs.user_compute_by_product[p] ?? 0;
+            return <CostRow key={p} label={p} value={v} pctStr={pct(v, costs.user_compute)} indent delta={d(v, baseCosts?.user_compute_by_product[p] ?? 0)} />;
+          })}
+          {hasOtherP && ucOtherCost > 0 && (() => {
+            const baseOther = baseCosts ? Object.entries(baseCosts.user_compute_by_product).filter(([p]) => !mProducts.includes(p)).reduce((s, [, v]) => s + v, 0) : 0;
+            return <CostRow label="(Other)" value={ucOtherCost} pctStr={pct(ucOtherCost, costs.user_compute)} indent delta={d(ucOtherCost, baseOther)} />;
+          })()}
+          <CostRow label="User-driven compute total" value={costs.user_compute} bold delta={d(costs.user_compute, baseCosts?.user_compute ?? 0)} />
         </>
       );
       if (cloudView === 'other_compute') return (
         <>
           {([
-            { label: 'CI / test batches', value: costs.batch_test },
-            { label: 'Dev batches', value: costs.batch_dev },
-            { label: 'Unknown / unlabeled', value: costs.unknown },
+            { label: 'CI / test batches', value: costs.batch_test, baseV: baseCosts?.batch_test ?? 0 },
+            { label: 'Dev batches', value: costs.batch_dev, baseV: baseCosts?.batch_dev ?? 0 },
+            { label: 'Unknown / unlabeled', value: costs.unknown, baseV: baseCosts?.unknown ?? 0 },
           ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
-            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.other_compute)} indent />
+            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.other_compute)} indent delta={d(r.value, r.baseV)} />
           ))}
-          <CostRow label="Other compute total" value={costs.other_compute} bold />
+          <CostRow label="Other compute total" value={costs.other_compute} bold delta={d(costs.other_compute, baseCosts?.other_compute ?? 0)} />
         </>
       );
       if (cloudView === 'k8s') return (
         <>
           {([
-            { label: 'Compute nodes', value: costs.k8s_nodes },
-            { label: 'Management fee', value: costs.k8s_mgmt },
+            { label: 'Compute nodes', value: costs.k8s_nodes, baseV: baseCosts?.k8s_nodes ?? 0 },
+            { label: 'Management fee', value: costs.k8s_mgmt, baseV: baseCosts?.k8s_mgmt ?? 0 },
           ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
-            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.k8s)} indent />
+            <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.k8s)} indent delta={d(r.value, r.baseV)} />
           ))}
-          <CostRow label="K8s total" value={costs.k8s} bold />
+          <CostRow label="K8s total" value={costs.k8s} bold delta={d(costs.k8s, baseCosts?.k8s ?? 0)} />
         </>
       );
       return (
         <>
-          {overheadSvcsSorted.map(svc => (
-            <CostRow key={svc} label={svc} value={costs.non_compute_services[svc] ?? 0} pctStr={pct(costs.non_compute_services[svc] ?? 0, costs.other_overhead)} indent />
-          ))}
-          <CostRow label="Other overhead total" value={costs.other_overhead} bold />
+          {overheadSvcsSorted.map(svc => {
+            const v = costs.non_compute_services[svc] ?? 0;
+            return <CostRow key={svc} label={svc} value={v} pctStr={pct(v, costs.other_overhead)} indent delta={d(v, baseCosts?.non_compute_services[svc] ?? 0)} />;
+          })}
+          <CostRow label="Other overhead total" value={costs.other_overhead} bold delta={d(costs.other_overhead, baseCosts?.other_overhead ?? 0)} />
         </>
       );
     })();
@@ -1288,9 +1424,12 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     ldg: boolean,
     period: string,
     compact: boolean,
+    baseBilling?: UserBilling | null,
   ) => {
     if (err) return <p className="text-amber-600 text-sm py-2">{err}</p>;
     if (!billing) return ldg ? null : <p className="text-zinc-400 text-sm py-2">No data for {period}.</p>;
+
+    const d = (v: number, baseV: number) => baseBilling != null ? v - baseV : undefined;
 
     const mResources = Object.entries(billing.resource_by_type)
       .filter(([, v]) => v >= 10).sort(([, a], [, b]) => b - a).map(([r]) => r);
@@ -1298,19 +1437,49 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     const brOtherCost = Object.entries(billing.resource_by_type)
       .filter(([r]) => !mResources.includes(r)).reduce((s, [, v]) => s + v, 0);
 
+    const mProjects = Object.entries(billing.billing_by_project)
+      .filter(([, v]) => v >= 10).sort(([, a], [, b]) => b - a).map(([p]) => p);
+    const hasOtherBP = Object.values(billing.billing_by_project).some(v => v < 10);
+    const bpOtherCost = Object.entries(billing.billing_by_project)
+      .filter(([p]) => !mProjects.includes(p)).reduce((s, [, v]) => s + v, 0);
+
     const rows = billingView === 'summary' ? (
       <>
-        <CostRow label="Resource usage" value={billing.resource_cost} pctStr={pct(billing.resource_cost, billing.total)} />
-        <CostRow label="Service fees" value={billing.service_fee_cost} pctStr={pct(billing.service_fee_cost, billing.total)} />
-        <CostRow label="Total" value={billing.total} bold />
+        <CostRow label="Resource usage" value={billing.resource_cost} pctStr={pct(billing.resource_cost, billing.total)} delta={d(billing.resource_cost, baseBilling?.resource_cost ?? 0)} />
+        <CostRow label="Service fees" value={billing.service_fee_cost} pctStr={pct(billing.service_fee_cost, billing.total)} delta={d(billing.service_fee_cost, baseBilling?.service_fee_cost ?? 0)} />
+        <CostRow label="Total" value={billing.total} bold delta={d(billing.total, baseBilling?.total ?? 0)} />
+      </>
+    ) : billingView === 'billing_project' ? (
+      <>
+        {mProjects.map((p, i) => {
+          const v = billing.billing_by_project[p] ?? 0;
+          return <CostRow key={p} label={p} value={v} pctStr={pct(v, billing.total)} indent colorClass={`text-[${BILLING_PROJECT_PALETTE[i % BILLING_PROJECT_PALETTE.length]}]`} delta={d(v, baseBilling?.billing_by_project[p] ?? 0)} />;
+        })}
+        {hasOtherBP && bpOtherCost > 0 && (() => {
+          const baseOther = baseBilling ? Object.entries(baseBilling.billing_by_project).filter(([p]) => !mProjects.includes(p)).reduce((s, [, v]) => s + v, 0) : 0;
+          return <CostRow label="(Other)" value={bpOtherCost} pctStr={pct(bpOtherCost, billing.total)} indent delta={d(bpOtherCost, baseOther)} />;
+        })()}
+        <CostRow label="Total" value={billing.total} bold delta={d(billing.total, baseBilling?.total ?? 0)} />
+        <div className="flex justify-between py-2 border-b border-zinc-100 text-xs text-zinc-500">
+          <span>Active billing projects</span>
+          <span className="tabular-nums font-medium text-zinc-700">{billing.billing_project_count}</span>
+        </div>
+        <div className="flex justify-between py-2 border-b border-zinc-100 last:border-0 text-xs text-zinc-500">
+          <span title="Normalized Herfindahl-Hirschman Index: 0 = perfectly equal across projects, 1 = one project has all billing" className="cursor-help underline decoration-dotted decoration-zinc-400">Concentration index</span>
+          <span className="tabular-nums font-medium text-zinc-700">{billing.billing_project_concentration.toFixed(3)}</span>
+        </div>
       </>
     ) : (
       <>
-        {mResources.map(r => (
-          <CostRow key={r} label={r} value={billing.resource_by_type[r] ?? 0} pctStr={pct(billing.resource_by_type[r] ?? 0, billing.resource_cost)} indent />
-        ))}
-        {hasOtherR && brOtherCost > 0 && <CostRow label="(Other)" value={brOtherCost} pctStr={pct(brOtherCost, billing.resource_cost)} indent />}
-        <CostRow label="Resource usage total" value={billing.resource_cost} bold />
+        {mResources.map(r => {
+          const v = billing.resource_by_type[r] ?? 0;
+          return <CostRow key={r} label={r} value={v} pctStr={pct(v, billing.resource_cost)} indent delta={d(v, baseBilling?.resource_by_type[r] ?? 0)} />;
+        })}
+        {hasOtherR && brOtherCost > 0 && (() => {
+          const baseOther = baseBilling ? Object.entries(baseBilling.resource_by_type).filter(([r]) => !mResources.includes(r)).reduce((s, [, v]) => s + v, 0) : 0;
+          return <CostRow label="(Other)" value={brOtherCost} pctStr={pct(brOtherCost, billing.resource_cost)} indent delta={d(brOtherCost, baseOther)} />;
+        })()}
+        <CostRow label="Resource usage total" value={billing.resource_cost} bold delta={d(billing.resource_cost, baseBilling?.resource_cost ?? 0)} />
       </>
     );
 
@@ -1319,10 +1488,15 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           { name: 'Resource usage', value: billing.resource_cost, fill: '#10b981' },
           { name: 'Service fees', value: billing.service_fee_cost, fill: '#6ee7b7' },
         ]
-      : [
-          ...mResources.map((r, i) => ({ name: r, value: billing.resource_by_type[r] ?? 0, fill: BILLING_RESOURCE_PALETTE[i % BILLING_RESOURCE_PALETTE.length] })),
-          ...(hasOtherR ? [{ name: '(Other)', value: brOtherCost, fill: '#9ca3af' }] : []),
-        ];
+      : billingView === 'billing_project'
+        ? [
+            ...mProjects.map((p, i) => ({ name: p, value: billing.billing_by_project[p] ?? 0, fill: BILLING_PROJECT_PALETTE[i % BILLING_PROJECT_PALETTE.length] })),
+            ...(hasOtherBP ? [{ name: '(Other)', value: bpOtherCost, fill: '#9ca3af' }] : []),
+          ]
+        : [
+            ...mResources.map((r, i) => ({ name: r, value: billing.resource_by_type[r] ?? 0, fill: BILLING_RESOURCE_PALETTE[i % BILLING_RESOURCE_PALETTE.length] })),
+            ...(hasOtherR ? [{ name: '(Other)', value: brOtherCost, fill: '#9ca3af' }] : []),
+          ];
 
     return (
       <div className="flex items-center gap-4">
@@ -1334,12 +1508,13 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     );
   };
 
-  const renderMarginBody = (costs: CloudCosts | null, billing: UserBilling | null) => {
+  const renderMarginBody = (costs: CloudCosts | null, billing: UserBilling | null, baseCosts?: CloudCosts | null, baseBilling?: UserBilling | null) => {
     if (!costs || !billing) return <p className="text-zinc-400 text-sm py-2">No data.</p>;
     const netVal = billing.total - costs.total;
+    const baseNetVal = baseCosts && baseBilling ? baseBilling.total - baseCosts.total : null;
     return (
       <>
-        <CostRow label="Net (billed − cloud)" value={netVal} bold colorClass={netVal >= 0 ? 'text-emerald-600' : 'text-red-600'} />
+        <CostRow label="Net (billed − cloud)" value={netVal} bold colorClass={netVal >= 0 ? 'text-emerald-600' : 'text-red-600'} delta={baseNetVal != null ? netVal - baseNetVal : undefined} />
         <div className="flex justify-between py-2 border-b border-zinc-100">
           <span className="text-zinc-700 font-semibold">Margin %</span>
           <span className={`tabular-nums font-semibold ${netVal >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{pct(netVal, costs.total)}</span>
@@ -1452,7 +1627,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             {compareTimePeriod !== null ? (
               <div className="grid grid-cols-2 divide-x divide-zinc-100">
                 <div className="pr-4">{renderCloudBody(cloudCosts, cloudError, loading, timePeriod, true)}</div>
-                <div className="pl-4">{renderCloudBody(compareCloudCosts, compareCloudError, compareLoading, compareTimePeriod, true)}</div>
+                <div className="pl-4">{renderCloudBody(compareCloudCosts, compareCloudError, compareLoading, compareTimePeriod, true, cloudCosts)}</div>
               </div>
             ) : renderCloudBody(cloudCosts, cloudError, loading, timePeriod, false)}
           </Panel>
@@ -1465,12 +1640,13 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             >
               <option value="summary">Summary</option>
               <option value="resource_usage">Resource usage</option>
+              <option value="billing_project">By billing project</option>
             </select>
           }>
             {compareTimePeriod !== null ? (
               <div className="grid grid-cols-2 divide-x divide-zinc-100">
                 <div className="pr-4">{renderBillingBody(userBilling, billingError, loading, timePeriod, true)}</div>
-                <div className="pl-4">{renderBillingBody(compareUserBilling, compareBillingError, compareLoading, compareTimePeriod, true)}</div>
+                <div className="pl-4">{renderBillingBody(compareUserBilling, compareBillingError, compareLoading, compareTimePeriod, true, userBilling)}</div>
               </div>
             ) : renderBillingBody(userBilling, billingError, loading, timePeriod, false)}
           </Panel>
@@ -1485,9 +1661,12 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                       : <p className="text-zinc-400 text-sm py-2">—</p>}
                   </div>
                   <div className="pl-4">
-                    {compareUserBilling
-                      ? <RatioRow label="Core hours" value={fmtCoreHours(compareUserBilling.service_fee_cost * 100)} />
-                      : <p className="text-zinc-400 text-sm py-2">—</p>}
+                    {compareUserBilling ? (() => {
+                      const cmpHrs = compareUserBilling.service_fee_cost * 100;
+                      const deltaHrs = userBilling ? cmpHrs - userBilling.service_fee_cost * 100 : null;
+                      const deltaStr = deltaHrs != null ? ` (${deltaHrs >= 0 ? '+' : ''}${fmtCoreHours(deltaHrs)})` : '';
+                      return <RatioRow label="Core hours" value={`${fmtCoreHours(cmpHrs)}${deltaStr}`} />;
+                    })() : <p className="text-zinc-400 text-sm py-2">—</p>}
                   </div>
                 </div>
               ) : (
@@ -1502,7 +1681,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 {compareTimePeriod !== null ? (
                   <div className="grid grid-cols-2 divide-x divide-zinc-100">
                     <div className="pr-4">{renderMarginBody(cloudCosts, userBilling)}</div>
-                    <div className="pl-4">{renderMarginBody(compareCloudCosts, compareUserBilling)}</div>
+                    <div className="pl-4">{renderMarginBody(compareCloudCosts, compareUserBilling, cloudCosts, userBilling)}</div>
                   </div>
                 ) : (
                   net !== null && cloudCosts && userBilling && renderMarginBody(cloudCosts, userBilling)
@@ -1614,7 +1793,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                     width={56}
                     domain={cloudShowPct ? [0, 100] : [0, cloudYMax]}
                   />
-                  <Tooltip content={(p) => <ChartTooltip {...p} stats={cloudShowPct ? cloudPctStats : cloudStats} seriesStats={cloudShowPct ? cloudPctSeriesStats : cloudSeriesStats} format={cloudShowPct ? (v => `${v.toFixed(1)}%`) : fmt} stacked />} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={cloudShowPct ? cloudPctStats : cloudStats} seriesStats={cloudShowPct ? cloudPctSeriesStats : cloudSeriesStats} format={cloudShowPct ? (v => `${v.toFixed(1)}%`) : fmt} stacked threshold={cloudShowPct ? undefined : 10} />} />
                   {cloudView === 'summary' ? (
                     <>
                       <Legend onClick={cloudCostsToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
@@ -1673,6 +1852,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                 >
                   <option value="summary">Summary</option>
                   <option value="resource_usage">Resource usage</option>
+                  <option value="billing_project">By billing project</option>
                 </select>
               </div>
             }>
@@ -1686,13 +1866,22 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                     width={56}
                     domain={billingShowPct ? [0, 100] : [0, billingYMax]}
                   />
-                  <Tooltip content={(p) => <ChartTooltip {...p} stats={billingShowPct ? billingPctStats : billingStats} seriesStats={billingShowPct ? billingPctSeriesStats : billingSeriesStats} format={billingShowPct ? (v => `${v.toFixed(1)}%`) : fmt} stacked />} />
+                  <Tooltip content={(p) => <ChartTooltip {...p} stats={billingShowPct ? billingPctStats : billingStats} seriesStats={billingShowPct ? billingPctSeriesStats : billingSeriesStats} format={billingShowPct ? (v => `${v.toFixed(1)}%`) : fmt} stacked threshold={billingShowPct ? undefined : 10} />} />
                   {billingView === 'summary' ? (
                     <>
                       <Legend onClick={billingToggle.onLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
                       {statsReferenceLines(billingShowPct ? billingPctStats : billingStats, 0, billingShowPct ? 100 : billingYMax)}
                       <Bar dataKey="resource_cost" name="Resource charges" stackId="a" fill="#10b981" hide={billingToggle.isHidden('resource_cost')} />
                       <Bar dataKey="service_fees" name="Service fees" stackId="a" fill="#6ee7b7" hide={billingToggle.isHidden('service_fees')} />
+                    </>
+                  ) : billingView === 'billing_project' ? (
+                    <>
+                      <Legend onClick={onBillingProjectLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
+                      {statsReferenceLines(billingShowPct ? billingPctStats : billingStats, 0, billingShowPct ? 100 : billingYMax)}
+                      {billingProjects.map(p => (
+                        <Bar key={p} dataKey={p} name={p} stackId="a" fill={billingProjectColor(p)} hide={isBillingProjectHidden(p)} />
+                      ))}
+                      {billingProjectsHasOther && <Bar dataKey="(Other)" name="(Other)" stackId="a" fill="#9ca3af" hide={isBillingProjectHidden('(Other)')} />}
                     </>
                   ) : (
                     <>
@@ -1830,11 +2019,18 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                     content={({ payload }) => {
                       if (!payload?.length) return null;
                       const d = payload[0].payload as { month: string; x: number; y: number };
+                      const predicted = scatterRegression ? scatterRegression.slope * d.x + scatterRegression.intercept : null;
                       return (
                         <div className="rounded border border-zinc-200 bg-white px-3 py-2 text-xs shadow">
                           <div className="font-semibold text-zinc-700 mb-1">{d.month}</div>
                           <div className="text-zinc-500">{fieldLabel(scatterX, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmtX(d.x)}</span></div>
                           <div className="text-zinc-500">{fieldLabel(scatterY, fieldGroups)}: <span className="text-zinc-800 font-medium">{fmtY(d.y)}</span></div>
+                          {predicted !== null && (
+                            <div className="text-zinc-400 mt-1 pt-1 border-t border-zinc-100">
+                              Predicted: <span className="text-zinc-800 font-medium">{fmtY(predicted)}</span>
+                              {(() => { const delta = d.y - predicted; return <span className={`ml-2 font-medium ${delta >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>(Δ {delta >= 0 ? '+' : ''}{fmtY(delta)})</span>; })()}
+                            </div>
+                          )}
                         </div>
                       );
                     }}
