@@ -160,12 +160,12 @@ function buildFieldGroups(products: string[], overheadServices: string[], overhe
       group: 'Cloud Costs',
       fields: [
         { id: 'cloud/total', label: 'Cloud Costs / Total' },
-        { id: 'cloud/user_compute', label: 'Cloud Costs / User-driven compute' },
-        ...products.map(p => ({ id: `cloud/user_compute/${p}`, label: `Cloud Costs / User-driven compute / ${p}` })),
-        { id: 'cloud/other_compute', label: 'Cloud Costs / Other compute' },
-        { id: 'cloud/batch_test', label: 'Cloud Costs / Other compute / CI/test batches' },
-        { id: 'cloud/batch_dev', label: 'Cloud Costs / Other compute / Dev batches' },
-        { id: 'cloud/unknown', label: 'Cloud Costs / Other compute / Unknown/unlabeled' },
+        { id: 'cloud/user_compute', label: 'Cloud Costs / Compute (user-driven)' },
+        ...products.map(p => ({ id: `cloud/user_compute/${p}`, label: `Cloud Costs / Compute (user-driven) / ${p}` })),
+        { id: 'cloud/other_compute', label: 'Cloud Costs / Compute (other)' },
+        { id: 'cloud/batch_test', label: 'Cloud Costs / Compute (other) / CI/test batches' },
+        { id: 'cloud/batch_dev', label: 'Cloud Costs / Compute (other) / Dev batches' },
+        { id: 'cloud/unknown', label: 'Cloud Costs / Compute (other) / Unknown/unlabeled' },
         { id: 'cloud/k8s', label: 'Cloud Costs / K8s' },
         { id: 'cloud/k8s_nodes', label: 'Cloud Costs / K8s / Nodes' },
         { id: 'cloud/k8s_mgmt', label: 'Cloud Costs / K8s / Management' },
@@ -672,13 +672,13 @@ function useLegendToggle(allKeys: readonly string[]) {
     [allKeys]
   );
   const isHidden = (key: string) => hidden.has(key);
-  return { onLegendClick, isHidden };
+  return { onLegendClick, isHidden, setHidden };
 }
 
 // --- Preset quick-links ---
 
 const RATIO_PRESETS: { label: string; num: string; den: string }[] = [
-  { label: 'Resource billing as % of user compute',  num: 'billing/resource_cost',  den: 'cloud/user_compute' },
+  { label: 'Resource billing as % of user-driven compute',  num: 'billing/resource_cost',  den: 'cloud/user_compute' },
   { label: 'Approximate pool utilization',           num: 'billing/resource/compute/n1-preemptible/us-central1', den: 'cloud/user_compute/Spot Preemptible N1 Predefined Instance Core running in Americas' },
   { label: 'Service fees as % of user bill',          num: 'billing/service_fees',   den: 'billing/total' },
   { label: 'K8s as % of cloud costs',                num: 'cloud/k8s',              den: 'cloud/total' },
@@ -688,9 +688,9 @@ const RATIO_PRESETS: { label: string; num: string; den: string }[] = [
 const SCATTER_PRESETS: { label: string; x: string; y: string }[] = [
   { label: 'Core hours vs Profit',             x: 'derived/core_hours', y: 'margin/profit' },
   { label: 'Cloud total vs Profit',            x: 'cloud/total',        y: 'margin/profit' },
-  { label: 'User compute vs Resource billing', x: 'cloud/user_compute', y: 'billing/resource_cost' },
+  { label: 'Compute (user-driven) vs Resource billing', x: 'cloud/user_compute', y: 'billing/resource_cost' },
   { label: 'Cloud total vs User billing',      x: 'cloud/total',        y: 'billing/total' },
-  { label: 'User compute vs Margin %',         x: 'cloud/user_compute', y: 'margin/margin_pct' },
+  { label: 'Compute (user-driven) vs Margin %',         x: 'cloud/user_compute', y: 'margin/margin_pct' },
 ];
 
 function PresetChips({ presets, activeNum, activeDen, onSelect }: {
@@ -1005,13 +1005,29 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
   const onSummaryCloudLegendClick = useCallback(
     (e: { dataKey?: string | number | ((obj: unknown) => unknown) }, index: number, event: { shiftKey: boolean }) => {
       if (typeof e.dataKey !== 'string') return;
-      if (['user_compute', 'other_compute', 'k8s'].includes(e.dataKey)) {
-        cloudCostsToggle.onLegendClick(e, index, event);
+      const key = e.dataKey;
+      const fixedKeys = ['user_compute', 'other_compute', 'k8s'] as const;
+      const isFixed = (fixedKeys as readonly string[]).includes(key);
+      if (event.shiftKey) {
+        // shift-click: toggle just this item in its own group
+        if (isFixed) cloudCostsToggle.onLegendClick(e, index, event);
+        else onOverheadLegendClick(e, index, event);
       } else {
-        onOverheadLegendClick(e, index, event);
+        // click: solo across both groups, or restore all if already soloed
+        const visibleFixed = fixedKeys.filter(k => !cloudCostsToggle.isHidden(k));
+        const visibleOverhead = overheadServices.filter(k => !isOverheadHidden(k));
+        const isSolo = visibleFixed.length + visibleOverhead.length === 1 &&
+          (visibleFixed[0] === key || visibleOverhead[0] === key);
+        if (isSolo) {
+          cloudCostsToggle.setHidden(new Set());
+          setOverheadHidden(new Set());
+        } else {
+          cloudCostsToggle.setHidden(new Set(fixedKeys.filter(k => k !== key)));
+          setOverheadHidden(new Set(overheadServices.filter(k => k !== key)));
+        }
       }
     },
-    [cloudCostsToggle, onOverheadLegendClick]
+    [cloudCostsToggle, onOverheadLegendClick, overheadServices, isOverheadHidden, setOverheadHidden]
   );
 
   const BILLING_RESOURCE_PALETTE = ['#10b981', '#059669', '#34d399', '#047857', '#6ee7b7', '#065f46', '#a7f3d0', '#14b8a6', '#0d9488', '#2dd4bf'];
@@ -1398,8 +1414,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
       if (cloudView === 'summary') return (
         <>
           {([
-            { label: 'User-driven compute', value: costs.user_compute, baseV: baseCosts?.user_compute ?? 0 },
-            { label: 'Other compute', value: costs.other_compute, baseV: baseCosts?.other_compute ?? 0 },
+            { label: 'Compute (user-driven)', value: costs.user_compute, baseV: baseCosts?.user_compute ?? 0 },
+            { label: 'Compute (other)', value: costs.other_compute, baseV: baseCosts?.other_compute ?? 0 },
             { label: 'K8s', value: costs.k8s, baseV: baseCosts?.k8s ?? 0 },
             ...mOverheadSvcs.map(svc => ({ label: svc, value: costs.non_compute_services[svc] ?? 0, baseV: baseCosts?.non_compute_services[svc] ?? 0 })),
           ]).sort((a, b) => b.value - a.value).map(r => (
@@ -1418,7 +1434,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
             const baseOther = baseCosts ? Object.entries(baseCosts.user_compute_by_product).filter(([p]) => !mProducts.includes(p)).reduce((s, [, v]) => s + v, 0) : 0;
             return <CostRow label="(Other)" value={ucOtherCost} pctStr={pct(ucOtherCost, costs.user_compute)} indent delta={d(ucOtherCost, baseOther)} />;
           })()}
-          <CostRow label="User-driven compute total" value={costs.user_compute} bold delta={d(costs.user_compute, baseCosts?.user_compute ?? 0)} />
+          <CostRow label="Compute (user-driven) total" value={costs.user_compute} bold delta={d(costs.user_compute, baseCosts?.user_compute ?? 0)} />
         </>
       );
       if (cloudView === 'other_compute') return (
@@ -1430,7 +1446,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
           ] as const).slice().sort((a, b) => b.value - a.value).map(r => (
             <CostRow key={r.label} label={r.label} value={r.value} pctStr={pct(r.value, costs.other_compute)} indent delta={d(r.value, r.baseV)} />
           ))}
-          <CostRow label="Other compute total" value={costs.other_compute} bold delta={d(costs.other_compute, baseCosts?.other_compute ?? 0)} />
+          <CostRow label="Compute (other) total" value={costs.other_compute} bold delta={d(costs.other_compute, baseCosts?.other_compute ?? 0)} />
         </>
       );
       if (cloudView === 'k8s') return (
@@ -1468,8 +1484,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
 
     const pieData: PieSlice[] = (() => {
       if (cloudView === 'summary') return [
-        { name: 'User-driven compute', value: costs.user_compute, fill: '#0ea5e9' },
-        { name: 'Other compute', value: costs.other_compute, fill: '#f59e0b' },
+        { name: 'Compute (user-driven)', value: costs.user_compute, fill: '#0ea5e9' },
+        { name: 'Compute (other)', value: costs.other_compute, fill: '#f59e0b' },
         { name: 'K8s', value: costs.k8s, fill: '#10b981' },
         ...mOverheadSvcs.map((svc, i) => ({ name: svc, value: costs.non_compute_services[svc] ?? 0, fill: OVERHEAD_PALETTE[i % OVERHEAD_PALETTE.length] })),
       ];
@@ -1616,7 +1632,7 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
     if (!costs || !billing) return <p className="text-zinc-400 text-sm py-2">No data.</p>;
     return (
       <>
-        <RatioRow label="User compute as % of cloud" value={pct(costs.user_compute, costs.total)} />
+        <RatioRow label="Compute (user-driven) as % of cloud" value={pct(costs.user_compute, costs.total)} />
         <RatioRow label="Resource billing as % of user-driven compute" value={pct(billing.resource_cost, costs.user_compute)} />
         <RatioRow label="Service fees as % of user billing" value={pct(billing.service_fee_cost, billing.total)} />
         <RatioRow label="Service fees as % of overhead" value={pct(billing.service_fee_cost, costs.other_compute + Object.values(costs.non_compute_services).reduce((a, b) => a + b, 0))} />
@@ -1707,8 +1723,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
               onChange={e => setCloudView(e.target.value)}
             >
               <option value="summary">Summary</option>
-              <option value="user_compute">User-driven compute</option>
-              <option value="other_compute">Other compute</option>
+              <option value="user_compute">Compute (user-driven)</option>
+              <option value="other_compute">Compute (other)</option>
               <option value="k8s">K8s</option>
               {overheadServicesMonthly.map(svc => <option key={svc} value={svc}>{svc}</option>)}
             </select>
@@ -1865,8 +1881,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                   onChange={e => setCloudView(e.target.value)}
                 >
                   <option value="summary">Summary</option>
-                  <option value="user_compute">User-driven compute</option>
-                  <option value="other_compute">Other compute</option>
+                  <option value="user_compute">Compute (user-driven)</option>
+                  <option value="other_compute">Compute (other)</option>
                   <option value="k8s">K8s</option>
                   {overheadServices.map(svc => <option key={svc} value={svc}>{svc}</option>)}
                 </select>
@@ -1887,8 +1903,8 @@ export function CostAnalysis({ monitoringBaseUrl, batchBaseUrl }: CostAnalysisPr
                     <>
                       <Legend onClick={onSummaryCloudLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
                       {statsReferenceLines(cloudShowPct ? cloudPctStats : cloudStats, 0, cloudShowPct ? 100 : cloudYMax)}
-                      <Bar dataKey="user_compute" name="User-driven compute" stackId="a" fill="#0ea5e9" hide={cloudCostsToggle.isHidden('user_compute')} />
-                      <Bar dataKey="other_compute" name="Other compute" stackId="a" fill="#f59e0b" hide={cloudCostsToggle.isHidden('other_compute')} />
+                      <Bar dataKey="user_compute" name="Compute (user-driven)" stackId="a" fill="#0ea5e9" hide={cloudCostsToggle.isHidden('user_compute')} />
+                      <Bar dataKey="other_compute" name="Compute (other)" stackId="a" fill="#f59e0b" hide={cloudCostsToggle.isHidden('other_compute')} />
                       <Bar dataKey="k8s" name="K8s" stackId="a" fill="#10b981" hide={cloudCostsToggle.isHidden('k8s')} />
                       {overheadServices.map(svc => (
                         <Bar key={svc} dataKey={svc} name={svc} stackId="a" fill={overheadServiceColor(svc)} hide={isOverheadHidden(svc)} />
