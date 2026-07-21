@@ -3221,18 +3221,7 @@ async def ui_get_billing_projects(request, userdata):
     is_global_bm = userdata['system_permissions'].get(SystemPermission.UPDATE_ALL_BILLING_PROJECTS, False)
 
     if request.cookies.get('hail_react_ui') == '1':
-        user = None if is_global_bm else userdata['username']
-        quote_manager_user = None if is_global_bm else userdata['username']
-        billing_projects = await query_billing_projects_with_cost(db, user=user, quote_manager_user=quote_manager_user)
-        for bp in billing_projects:
-            bp['limit_fmt'] = _fmt_dollars(bp['limit'])
-            bp['remaining_fmt'] = _fmt_dollars(bp['remaining'])
-            bp['accrued_cost_fmt'] = cost_str(bp['accrued_cost']) or '$0'
-        page_context = {
-            'billing_projects': [bp for bp in billing_projects if bp['status'] == 'open'],
-            'closed_projects': [bp for bp in billing_projects if bp['status'] == 'closed'],
-        }
-        return await render_template('batch', request, userdata, 'billing_projects_new.html', page_context)
+        return await render_template('batch', request, userdata, 'billing_projects_react.html', {})
 
     user = None if is_global_bm else userdata['username']
     quote_manager_user = None if is_global_bm else userdata['username']
@@ -3587,12 +3576,6 @@ async def api_get_billing_project_events(request: web.Request, _: UserData) -> w
 # ---------------------------------------------------------------------------
 
 
-def _fmt_dollars(v: Optional[float]) -> str:
-    if v is None:
-        return 'Unlimited'
-    return f'${v:,.2f}'
-
-
 @routes.get('/billing_projects/{billing_project}')
 @web_security_headers
 @auth.authenticated_users_only()
@@ -3607,38 +3590,11 @@ async def ui_get_billing_project(request: web.Request, userdata) -> web.Response
     if billing_role is None:
         raise web.HTTPForbidden(reason=f'Unknown billing project {billing_project}.')
 
-    bps = await query_billing_projects_with_cost(
-        db,
-        billing_project=billing_project,
-        quote_manager_user=None if is_global_bm else username,
-    )
-    if not bps:
-        raise web.HTTPForbidden(reason=f'Unknown billing project {billing_project}.')
-    bp = bps[0]
-
-    events = await billing_dao.get_billing_project_events(db, billing_project)
-
-    can_edit_limit = billing_role in ('global_bm', 'quote_owner', 'quote_manager')
-    can_edit_alert = billing_role in ('global_bm', 'quote_owner', 'quote_manager', 'bp_member')
-    can_manage_members = billing_role in ('global_bm', 'quote_owner', 'quote_manager', 'bp_member')
-    can_close_reopen = billing_role in ('global_bm', 'quote_owner', 'quote_manager')
-
     page_context = {
-        'bp': {
-            **bp,
-            'limit_fmt': _fmt_dollars(bp['limit']),
-            'remaining_fmt': _fmt_dollars(bp['remaining']),
-            'accrued_cost_fmt': cost_str(bp['accrued_cost']) or '$0',
-            'low_budget_alert_fmt': _fmt_dollars(bp['low_budget_alert']),
-        },
-        'events': events,
+        'bp_name': billing_project,
         'billing_role': billing_role,
-        'can_edit_limit': can_edit_limit,
-        'can_edit_alert': can_edit_alert,
-        'can_manage_members': can_manage_members,
-        'can_close_reopen': can_close_reopen,
     }
-    return await render_template('batch', request, userdata, 'billing_project.html', page_context)
+    return await render_template('batch', request, userdata, 'billing_project_react.html', page_context)
 
 
 # ---------------------------------------------------------------------------
@@ -3651,17 +3607,9 @@ async def ui_get_billing_project(request: web.Request, userdata) -> web.Response
 @auth.authenticated_users_only()
 @catch_ui_error_in_dev
 async def ui_get_quotes(request: web.Request, userdata) -> web.Response:
-    db: Database = request.app['db']
-    username = userdata['username']
-    is_global_bm = userdata['system_permissions'].get(SystemPermission.UPDATE_ALL_BILLING_PROJECTS, False)
     can_create = userdata['system_permissions'].get(SystemPermission.CREATE_QUOTES, False)
-
-    quotes = await billing_dao.list_quotes_for_user(db, username, is_global_bm)
-    page_context = {
-        'quotes': [{**q, 'authorized_amount_fmt': _fmt_dollars(q['authorized_amount'])} for q in quotes],
-        'can_create': can_create,
-    }
-    return await render_template('batch', request, userdata, 'quotes.html', page_context)
+    page_context = {'can_create': can_create}
+    return await render_template('batch', request, userdata, 'quotes_react.html', page_context)
 
 
 @routes.get('/billing/quotes/{name}')
@@ -3678,32 +3626,11 @@ async def ui_get_quote(request: web.Request, userdata) -> web.Response:
     if billing_role is None:
         raise web.HTTPForbidden(reason=f'Unknown quote {quote_name}.')
 
-    quote = await billing_dao.get_quote(db, quote_name)
-    if quote is None:
-        raise web.HTTPNotFound(reason=f'Unknown quote {quote_name}.')
-
-    events = await billing_dao.get_quote_events(db, quote_name)
-
-    can_edit = billing_role in ('global_bm', 'quote_owner', 'quote_manager')
-    can_manage_managers = billing_role in ('global_bm', 'quote_owner')
-
-    for bp in quote['billing_projects']:
-        bp['limit_fmt'] = _fmt_dollars(bp['limit'])
-        bp['remaining_fmt'] = _fmt_dollars(bp['remaining'])
-        bp['accrued_cost_fmt'] = cost_str(bp['accrued_cost']) or '$0'
-        bp['low_budget_alert_fmt'] = _fmt_dollars(bp['low_budget_alert'])
-
     page_context = {
-        'quote': {
-            **quote,
-            'authorized_amount_fmt': _fmt_dollars(quote['authorized_amount']),
-        },
-        'events': events,
+        'quote_name': quote_name,
         'billing_role': billing_role,
-        'can_edit': can_edit,
-        'can_manage_managers': can_manage_managers,
     }
-    return await render_template('batch', request, userdata, 'quote.html', page_context)
+    return await render_template('batch', request, userdata, 'quote_react.html', page_context)
 
 
 # ---------------------------------------------------------------------------
