@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+{% block title %}Quotes{% endblock %}
+{% block content %}
+
+<div class='flex items-center justify-between mb-6'>
+  <h1 class='text-2xl font-light'>Quotes</h1>
+  {% if can_create %}
+  <button x-data x-on:click="$dispatch('open-create-quote')"
+    class='bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700'>
+    New Quote
+  </button>
+  {% endif %}
+</div>
+
+{% if quotes %}
+<table class='table-fixed w-full overflow-hidden rounded border text-sm'>
+  <thead>
+    <tr>
+      <th class='h-10 bg-slate-200 font-normal pl-3 text-left'>Name</th>
+      <th class='h-10 bg-slate-200 font-normal text-left'>Cost Object</th>
+      <th class='h-10 bg-slate-200 font-normal text-left'>PI</th>
+      <th class='h-10 bg-slate-200 font-normal text-left'>PM Designee</th>
+      <th class='h-10 bg-slate-200 font-normal text-left'>Authorized Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for q in quotes %}
+    <tr class='border-t hover:bg-slate-50'>
+      <td class='pl-3 py-2'>
+        <a href="{{ base_path }}/billing/quotes/{{ q['name'] }}"
+           class='text-blue-600 hover:underline'>{{ q['name'] }}</a>
+      </td>
+      <td class='py-2'>{{ q['cost_object'] }}</td>
+      <td class='py-2'>{{ q['pi_name'] or '' }}</td>
+      <td class='py-2'>{{ q['pm_designee'] or '' }}</td>
+      <td class='py-2'>{{ q['authorized_amount_fmt'] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class='text-slate-500 mt-4'>No quotes found.</p>
+{% endif %}
+
+{% if can_create %}
+<!-- Create quote modal -->
+<div x-data='{
+    open: false,
+    name: "", costObject: "", authorizedAmount: "", piName: "", pmDesignee: "",
+    error: "",
+    submit() { createQuote(this.name, this.costObject, this.authorizedAmount, this.piName, this.pmDesignee, v => this.error = v); }
+  }' x-on:open-create-quote.window='open=true'>
+  <div x-show='open' x-cloak class='fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50'>
+    <div class='bg-white rounded shadow-lg w-full max-w-md p-6'>
+      <h2 class='text-xl font-light mb-4'>New Quote</h2>
+      <div class='space-y-3 text-sm'>
+        <div>
+          <label class='block mb-1 text-slate-600'>Name <span class='text-red-500'>*</span></label>
+          <input type='text' x-model='name' class='border rounded px-2 py-1 w-full' spellcheck='false'>
+        </div>
+        <div>
+          <label class='block mb-1 text-slate-600'>Cost Object <span class='text-red-500'>*</span></label>
+          <input type='text' x-model='costObject' class='border rounded px-2 py-1 w-full' spellcheck='false'>
+        </div>
+        <div>
+          <label class='block mb-1 text-slate-600'>
+            Authorized Amount (dollars, or leave blank for unlimited)
+          </label>
+          <input type='number' min='0' step='0.01' x-model='authorizedAmount'
+            class='border rounded px-2 py-1 w-full' placeholder='e.g. 10000'>
+        </div>
+        <div>
+          <label class='block mb-1 text-slate-600'>PI Name</label>
+          <input type='text' x-model='piName' class='border rounded px-2 py-1 w-full'>
+        </div>
+        <div>
+          <label class='block mb-1 text-slate-600'>PM Designee</label>
+          <input type='text' x-model='pmDesignee' class='border rounded px-2 py-1 w-full'>
+        </div>
+      </div>
+      <div x-show='error' x-cloak class='text-red-600 text-xs mt-2' x-text='error'></div>
+      <div class='flex justify-end gap-2 mt-4'>
+        <button x-on:click='open=false; error=""'
+          class='border border-gray-300 px-3 py-1.5 rounded text-sm hover:bg-slate-50'>Cancel</button>
+        <button x-on:click='submit()'
+          class='bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700'>Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script id='quotes-js' defer
+  src="{{ base_path }}/batch/static/js/quotes.js"
+  data-base-path="{{ base_path }}">
+</script>
+{% endblock %}

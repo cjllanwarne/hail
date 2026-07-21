@@ -1,7 +1,11 @@
 {% extends "layout.html" %}
 {% block title %}Billing Limits{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-light mb-4 ">Billing Projects Limits</h1>
+<div class='flex items-center justify-between mb-4'>
+  <h1 class="text-2xl font-light">Billing Projects Limits</h1>
+  <a href="{{ base_path }}/set_ui_style?style=new&redirect=/billing_projects"
+     class='text-xs text-blue-600 hover:underline'>Try new page</a>
+</div>
 <table class='table-fixed overflow-hidden rounded'>
   <thead>
     <th class='h-16 bg-slate-200 font-normal pl-2 text-left rounded-tl'>Billing Project</th>

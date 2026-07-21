@@ -2,7 +2,11 @@
 {% extends "layout.html" %}
 {% block title %}Billing Projects{% endblock %}
 {% block content %}
-<h1 class="text-2xl font-light mb-4 ">Billing Projects</h1>
+<div class='flex items-center justify-between mb-4'>
+  <h1 class="text-2xl font-light">Billing Projects</h1>
+  <a href="{{ base_path }}/set_ui_style?style=new&redirect=/billing_projects"
+     class='text-xs text-blue-600 hover:underline'>Try new page</a>
+</div>
 {% if userdata['system_permissions']['create_billing_projects'] %}
 <form action="{{ base_path }}/billing_projects/create" method="POST">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -21,7 +25,8 @@
     {% for bp in billing_projects %}
     <tr class='border border-collapse hover:bg-slate-100' x-data='{ editing: false }'>
       <td class='p-2'>
-        {{ bp['billing_project'] }}
+        <a href="{{ base_path }}/billing_projects/{{ bp['billing_project'] }}"
+           class='text-blue-600 hover:underline'>{{ bp['billing_project'] }}</a>
       </td>
       <td class='p-2'>
         {% if userdata['system_permissions']['update_all_billing_projects'] %}
@@ -93,7 +98,8 @@
     {% for bp in closed_projects %}
     <tr class='border border-collapse bg-gray-100'>
       <td class='p-2 font-thin italic'>
-        {{ bp['billing_project'] }}
+        <a href="{{ base_path }}/billing_projects/{{ bp['billing_project'] }}"
+           class='text-blue-600 hover:underline'>{{ bp['billing_project'] }}</a>
       </td>
       <td class='p-2 font-thin'>
         {{ bp['limit'] }}
