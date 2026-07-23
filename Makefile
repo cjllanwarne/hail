@@ -302,7 +302,7 @@ run-dev-proxy: ci/ci/static/compiled-js/flaky_tests.js \
     batch/batch/driver/static/compiled-js/index.js \
     monitoring/monitoring/static/compiled-js/index.js \
     auth/auth/static/compiled-js/index.js
-DEVSERVER_TARGETS = tailwind-compile-watch run-dev-proxy ui-js-watch ui-js-watch-batch ui-js-watch-batch-driver ui-js-watch-monitoring ui-js-watch-auth
+DEVSERVER_TARGETS = tailwind-compile-watch run-dev-proxy ui-js-watch ui-js-watch-batch ui-js-watch-batch-billing ui-js-watch-batch-driver ui-js-watch-monitoring ui-js-watch-auth
 
 .PHONY: run-dev-proxy
 run-dev-proxy:
@@ -318,6 +318,10 @@ ui-js-watch: services/ui/node_modules/.package-lock.json
 .PHONY: ui-js-watch-batch
 ui-js-watch-batch: services/ui/node_modules/.package-lock.json
 	cd services/ui && npx esbuild src/batch/job.tsx --bundle --jsx=automatic --format=esm --outfile=../../batch/batch/front_end/static/compiled-js/job.js --minify --watch=forever
+
+.PHONY: ui-js-watch-batch-billing
+ui-js-watch-batch-billing: services/ui/node_modules/.package-lock.json
+	cd services/ui && npx esbuild src/batch/billing.tsx --bundle --jsx=automatic --format=esm --outfile=../../batch/batch/front_end/static/compiled-js/billing.js --minify --watch=forever
 
 .PHONY: ui-js-watch-batch-driver
 ui-js-watch-batch-driver: services/ui/node_modules/.package-lock.json
@@ -349,7 +353,7 @@ missing = [p for p in pkgs if p not in installed]; \
 
 .PHONY: devserver
 devserver: check-devserver-deps
-	$(MAKE) -j 7 $(DEVSERVER_TARGETS)
+	$(MAKE) -j 8 $(DEVSERVER_TARGETS)
 
 .PHONY: benchmark
 benchmark: hail-dev-image

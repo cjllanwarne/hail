@@ -145,7 +145,11 @@ export function BillingProjectsPage({ basePath, isGlobalBm, canCreateBp, canCrea
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-light">Billing Projects</h1>
+        <div className="flex items-center gap-2 text-2xl font-light">
+          <a href={`${basePath}/billing/quotes`} className="text-slate-400 hover:text-slate-600">Quotes</a>
+          <span className="text-slate-300">›</span>
+          <span>Billing Projects</span>
+        </div>
         <div className="flex items-center gap-3">
           {canCreateBp && (
             <button
@@ -154,14 +158,6 @@ export function BillingProjectsPage({ basePath, isGlobalBm, canCreateBp, canCrea
             >
               New Billing Project
             </button>
-          )}
-          {canCreateQuotes && (
-            <a
-              href={`${basePath}/billing/quotes`}
-              className="text-sm text-blue-600 hover:underline"
-            >
-              Quotes
-            </a>
           )}
           <a
             href={`${basePath}/set_ui_style?style=classic&redirect=/billing_projects`}

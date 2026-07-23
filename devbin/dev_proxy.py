@@ -80,6 +80,7 @@ _LOCAL_REACT_ROUTES: list[tuple[str, str, str, str]] = [
     ('auth',         'GET', '/auth/helloreact', 'hello_react.html'),
     ('batch-driver', 'GET', '/batch-driver/helloreact', 'hello_react.html'),
     ('ci',           'GET', '/ci/flaky_tests', 'flaky_tests.html'),
+    ('batch',        'GET', '/batch/billing_projects', 'billing_projects_react.html'),
 ]
 
 for _service, _verb, _path, _template in _LOCAL_REACT_ROUTES:
@@ -92,6 +93,33 @@ for _service, _verb, _path, _template in _LOCAL_REACT_ROUTES:
     routes.route(_verb, _path)(web_security_headers(_local_handler))
 
 
+# Billing pages that need context beyond userdata.
+@routes.get('/batch/billing/quotes')
+@web_security_headers
+async def dev_quotes(request: web.Request) -> web.Response:
+    return await _render_html(request, 'batch', _FAKE_DEV_USERDATA, 'quotes_react.html', {'can_create': True})
+
+
+@routes.get('/batch/billing_projects/{name}')
+@web_security_headers
+async def dev_billing_project(request: web.Request) -> web.Response:
+    bp_name = request.match_info['name']
+    return await _render_html(request, 'batch', _FAKE_DEV_USERDATA, 'billing_project_react.html', {
+        'bp_name': bp_name,
+        'billing_role': 'global_bm',
+    })
+
+
+@routes.get('/batch/billing/quotes/{name}')
+@web_security_headers
+async def dev_quote(request: web.Request) -> web.Response:
+    quote_name = request.match_info['name']
+    return await _render_html(request, 'batch', _FAKE_DEV_USERDATA, 'quote_react.html', {
+        'quote_name': quote_name,
+        'billing_role': 'global_bm',
+    })
+
+
 @routes.view('/{service:[^/]+}/api/{route:.*}')
 @web_security_headers
 async def default_proxied_api_route(request: web.Request) -> web.Response:
@@ -100,8 +128,14 @@ async def default_proxied_api_route(request: web.Request) -> web.Response:
         raise web.HTTPNotFound()
     backend_client = request.app[BC]
     backend_route = _backend_url(service, request.raw_path)
+    _SKIP = {'host', 'content-length', 'cookie', 'authorization', 'transfer-encoding'}
+    forward_headers = {k: v for k, v in request.headers.items() if k.lower() not in _SKIP}
     try:
-        async with await backend_client.request(request.method, backend_route) as resp:
+        async with await backend_client.request(
+            request.method, backend_route,
+            headers=forward_headers,
+            data=request.content,
+        ) as resp:
             body = await resp.read()
             content_type = resp.content_type
     except httpx.ClientResponseError as e:

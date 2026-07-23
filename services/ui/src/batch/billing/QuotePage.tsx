@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Quote, BillingProject, BillingEvent } from './api';
 import { fetchJson, apiCall } from './api';
-import { fmtDollars, fmtCost } from './fmt';
+import { fmtDollars, fmtCost, fmtTimestamp } from './fmt';
 import type { BillingRole } from './permissions';
 import { can } from './permissions';
 import { SectionHeader, ErrorBanner, EditableRow, EventLog } from './shared';
@@ -13,12 +13,13 @@ interface Props {
 }
 
 const QUOTE_EVENT_COLUMNS = [
-  { key: 'timestamp' as const, label: 'Time' },
+  { key: 'timestamp' as const, label: 'Time', render: (v: unknown) => <span className="whitespace-nowrap text-slate-500">{fmtTimestamp(v as number)}</span> },
   { key: 'actor' as const, label: 'Actor' },
   { key: 'action' as const, label: 'Action' },
   { key: 'target_user' as const, label: 'Target User' },
   { key: 'target_project' as const, label: 'Target Project' },
   { key: 'detail' as const, label: 'Detail' },
+  { key: 'comment' as const, label: 'Comment', render: (v: unknown) => <span className="text-slate-500 italic">{String(v ?? '')}</span> },
 ];
 
 function isLowBudget(bp: BillingProject): boolean {
@@ -98,11 +99,10 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex items-center gap-3 mb-6">
-        <a href={`${basePath}/billing/quotes`} className="text-slate-500 hover:text-slate-700">
-          <span className="material-symbols-outlined text-base">arrow_back</span>
-        </a>
-        <h1 className="text-2xl font-light">{quoteName}</h1>
+      <div className="flex items-center gap-2 mb-6 text-2xl font-light">
+        <a href={`${basePath}/billing/quotes`} className="text-slate-400 hover:text-slate-600">Quotes</a>
+        <span className="text-slate-300">›</span>
+        <span>{quoteName}</span>
       </div>
 
       {/* Details */}

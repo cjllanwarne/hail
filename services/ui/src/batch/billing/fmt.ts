@@ -8,3 +8,13 @@ export function fmtCost(v: number): string {
   if (v < 0.0001) return '<$0.0001';
   return '$' + v.toFixed(4);
 }
+
+export function fmtTimestamp(ms: number | null | undefined): string {
+  if (ms == null) return '';
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return String(ms);
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}

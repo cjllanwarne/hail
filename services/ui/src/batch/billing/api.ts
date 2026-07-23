@@ -29,7 +29,7 @@ export interface Quote {
 
 export interface BillingEvent {
   id: number;
-  timestamp: string;
+  timestamp: number;
   actor: string;
   action: string;
   target_user: string | null;
