@@ -4,7 +4,7 @@ import { fetchJson, apiCall } from './api';
 import { fmtDollars, fmtCost, fmtTimestamp } from './fmt';
 import type { BillingRole } from './permissions';
 import { can } from './permissions';
-import { SectionHeader, ErrorBanner, EditableRow, EventLog, BillingProjectsTable, BudgetBar } from './shared';
+import { SectionHeader, ErrorBanner, EditableRow, EventLog, BillingProjectsTable, BudgetBar, CreateBpModal } from './shared';
 
 interface Props {
   basePath: string;
@@ -32,6 +32,7 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
   const [addMgrUser, setAddMgrUser] = useState('');
   const [addMgrRole, setAddMgrRole] = useState('manager');
   const [mgrError, setMgrError] = useState<string | null>(null);
+  const [showCreateBp, setShowCreateBp] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -94,6 +95,7 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
 
   const canEdit = can(billingRole, 'edit_quote');
   const canManageManagers = can(billingRole, 'manage_managers');
+  const canCreateBp = can(billingRole, 'create_bp');
 
   const totalDistributed = quote.billing_projects.reduce((s, bp) => s + (bp.limit ?? 0), 0);
   const totalSpent = quote.billing_projects.reduce((s, bp) => s + bp.accrued_cost, 0);
@@ -101,6 +103,8 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
   return (
     <div className="max-w-4xl">
       <div className="flex items-center gap-2 mb-6 text-2xl font-light">
+        <span className="text-slate-400">Billing</span>
+        <span className="text-slate-300">›</span>
         <a href={`${basePath}/billing/quotes`} className="text-slate-400 hover:text-slate-600">Quotes</a>
         <span className="text-slate-300">›</span>
         <span>{quoteName}</span>
@@ -201,6 +205,9 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
                 type="text" value={addMgrUser}
                 onChange={(e) => setAddMgrUser(e.target.value)}
                 placeholder="username" spellCheck={false}
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
                 className="border rounded px-2 py-1 text-sm w-48"
                 onKeyDown={(e) => { if (e.key === 'Enter') void addManager(); }}
               />
@@ -212,6 +219,12 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
                 <option value="manager">manager</option>
                 <option value="owner">owner</option>
               </select>
+              <span
+                className="material-symbols-outlined text-slate-400 hover:text-slate-600 cursor-default text-base"
+                title="Managers can edit quote details and manage billing projects. Owners can additionally add and remove managers."
+              >
+                info
+              </span>
               <button
                 onClick={() => void addManager()}
                 className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
@@ -222,6 +235,21 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
           )}
         </div>
       </section>
+
+      {/* Actions */}
+      {canCreateBp && (
+        <section className="border rounded mb-6">
+          <SectionHeader label="Actions" />
+          <div className="p-4">
+            <button
+              onClick={() => setShowCreateBp(true)}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
+            >
+              Add Billing Project
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* Event Log */}
       <section className="border rounded mb-6">
@@ -237,6 +265,15 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
         emptyMessage="No closed billing projects under this quote."
         defaultOpen={false}
       />
+
+      {showCreateBp && (
+        <CreateBpModal
+          basePath={basePath}
+          fixedQuoteName={quoteName}
+          onClose={() => setShowCreateBp(false)}
+          onCreated={() => void fetchData()}
+        />
+      )}
     </div>
   );
 }

@@ -2,7 +2,62 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Quote } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtDollars } from './fmt';
-import { ErrorBanner } from './shared';
+import { ErrorBanner, CompactBudgetBar } from './shared';
+
+type SortKey = 'name' | 'cost_object' | 'spent' | 'limit' | 'usage';
+type SortDir = 'asc' | 'desc';
+
+const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
+  name: 'asc',
+  cost_object: 'asc',
+  spent: 'desc',
+  limit: 'desc',
+  usage: 'desc',
+};
+
+function totalSpent(q: Quote): number {
+  return (q.billing_projects ?? []).reduce((s, bp) => s + bp.accrued_cost, 0);
+}
+
+function sortQuotes(quotes: Quote[], key: SortKey, dir: SortDir): Quote[] {
+  return [...quotes].sort((a, b) => {
+    let cmp = 0;
+    switch (key) {
+      case 'name':      cmp = a.name.localeCompare(b.name); break;
+      case 'cost_object': cmp = a.cost_object.localeCompare(b.cost_object); break;
+      case 'spent':     cmp = totalSpent(a) - totalSpent(b); break;
+      case 'limit':
+        if (a.authorized_amount === null && b.authorized_amount === null) cmp = 0;
+        else if (a.authorized_amount === null) cmp = 1;
+        else if (b.authorized_amount === null) cmp = -1;
+        else cmp = a.authorized_amount - b.authorized_amount;
+        break;
+      case 'usage': {
+        const pA = a.authorized_amount === null ? 0 : totalSpent(a) / a.authorized_amount;
+        const pB = b.authorized_amount === null ? 0 : totalSpent(b) / b.authorized_amount;
+        cmp = pA - pB;
+        break;
+      }
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function SortTh({ label, sortKey, current, dir, onSort }: {
+  label: string; sortKey: SortKey; current: SortKey; dir: SortDir; onSort: (k: SortKey) => void;
+}) {
+  const active = sortKey === current;
+  return (
+    <th className="text-left p-3 font-medium cursor-pointer select-none hover:bg-slate-100" onClick={() => onSort(sortKey)}>
+      <div className="flex items-center gap-1">
+        {label}
+        <span className="material-symbols-outlined text-sm text-slate-400">
+          {active ? (dir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+        </span>
+      </div>
+    </th>
+  );
+}
 
 interface Props {
   basePath: string;
@@ -111,6 +166,13 @@ export function QuotesPage({ basePath, canCreate }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir(SORT_DEFAULT_DIR[key]); }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -129,7 +191,11 @@ export function QuotesPage({ basePath, canCreate }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-light">Quotes</h1>
+        <div className="flex items-center gap-2 text-2xl font-light">
+          <span className="text-slate-400">Billing</span>
+          <span className="text-slate-300">›</span>
+          <span>Quotes</span>
+        </div>
         {canCreate && (
           <button
             onClick={() => setShowCreate(true)}
@@ -150,30 +216,35 @@ export function QuotesPage({ basePath, canCreate }: Props) {
 
       {!loading && !error && (
         quotes && quotes.length > 0 ? (
-          <table className="table-fixed w-full overflow-hidden rounded border text-sm">
-            <thead>
+          <table className="w-full overflow-hidden rounded border text-sm">
+            <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
-                <th className="h-10 bg-slate-200 font-normal pl-3 text-left">Name</th>
-                <th className="h-10 bg-slate-200 font-normal text-left">Cost Object</th>
-                <th className="h-10 bg-slate-200 font-normal text-left">PI</th>
-                <th className="h-10 bg-slate-200 font-normal text-left">PM Designee</th>
-                <th className="h-10 bg-slate-200 font-normal text-left">Authorized Amount</th>
+                <SortTh label="Name"            sortKey="name"        current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Cost Object"     sortKey="cost_object" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Spent"           sortKey="spent"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Authorized"      sortKey="limit"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Usage"           sortKey="usage"       current={sortKey} dir={sortDir} onSort={handleSort} />
               </tr>
             </thead>
             <tbody>
-              {quotes.map((q) => (
-                <tr key={q.id} className="border-t hover:bg-slate-50">
-                  <td className="pl-3 py-2">
-                    <a href={`${basePath}/billing/quotes/${q.name}`} className="text-blue-600 hover:underline">
-                      {q.name}
-                    </a>
-                  </td>
-                  <td className="py-2">{q.cost_object}</td>
-                  <td className="py-2">{q.pi_name ?? ''}</td>
-                  <td className="py-2">{q.pm_designee ?? ''}</td>
-                  <td className="py-2">{fmtDollars(q.authorized_amount)}</td>
-                </tr>
-              ))}
+              {sortQuotes(quotes, sortKey, sortDir).map((q) => {
+                const spent = totalSpent(q);
+                return (
+                  <tr key={q.id} className="border-t hover:bg-slate-50">
+                    <td className="p-3">
+                      <a href={`${basePath}/billing/quotes/${q.name}`} className="text-blue-600 hover:underline">
+                        {q.name}
+                      </a>
+                    </td>
+                    <td className="p-3 text-slate-700">{q.cost_object}</td>
+                    <td className="p-3 text-slate-700">{fmtDollars(spent)}</td>
+                    <td className="p-3 text-slate-700">{fmtDollars(q.authorized_amount)}</td>
+                    <td className="p-3">
+                      <CompactBudgetBar accrued={spent} limit={q.authorized_amount} alert={null} />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         ) : (

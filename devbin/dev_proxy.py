@@ -139,9 +139,7 @@ async def default_proxied_api_route(request: web.Request) -> web.Response:
             body = await resp.read()
             content_type = resp.content_type
     except httpx.ClientResponseError as e:
-        if e.status == 404:
-            raise web.HTTPNotFound()
-        raise
+        return web.Response(status=e.status, text=e.body, content_type='text/plain')
     return web.Response(body=body, content_type=content_type)
 
 

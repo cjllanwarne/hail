@@ -208,6 +208,8 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
   return (
     <div className="max-w-4xl">
       <div className="flex items-center gap-2 mb-6 text-2xl font-light">
+        <span className="text-slate-400">Billing</span>
+        <span className="text-slate-300">›</span>
         <a href={`${basePath}/billing/quotes`} className="text-slate-400 hover:text-slate-600">Quotes</a>
         <span className="text-slate-300">›</span>
         <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-slate-400 hover:text-slate-600">{bp.quote_name}</a>
@@ -291,6 +293,9 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
                 onChange={(e) => setAddUser(e.target.value)}
                 placeholder="username"
                 spellCheck={false}
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
                 className="border rounded px-2 py-1 text-sm w-48"
                 onKeyDown={(e) => { if (e.key === 'Enter') void addMember(); }}
               />

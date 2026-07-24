@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
-import type { BillingEvent, BillingProject } from './api';
+import type { BillingEvent, BillingProject, Quote } from './api';
+import { fetchJson, apiCall } from './api';
 import { fmtCost, fmtDollars } from './fmt';
 
 interface BudgetBarProps {
@@ -77,11 +78,12 @@ function isLowBudget(bp: BillingProject): boolean {
   return bp.low_budget_alert !== null && bp.accrued_cost >= bp.low_budget_alert;
 }
 
-type BPSortKey = 'name' | 'spent' | 'limit' | 'usage';
+type BPSortKey = 'name' | 'quote' | 'spent' | 'limit' | 'usage';
 type SortDir = 'asc' | 'desc';
 
 const SORT_DEFAULT_DIR: Record<BPSortKey, SortDir> = {
   name: 'asc',
+  quote: 'asc',
   spent: 'desc',
   limit: 'desc',
   usage: 'desc',
@@ -93,6 +95,9 @@ function sortBps(bps: BillingProject[], key: BPSortKey, dir: SortDir): BillingPr
     switch (key) {
       case 'name':
         cmp = a.billing_project.localeCompare(b.billing_project);
+        break;
+      case 'quote':
+        cmp = a.quote_name.localeCompare(b.quote_name);
         break;
       case 'spent':
         cmp = a.accrued_cost - b.accrued_cost;
@@ -144,12 +149,13 @@ function SortTh({ label, sortKey, current, dir, onSort }: {
   );
 }
 
-export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defaultOpen = true }: {
+export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defaultOpen = true, showQuote = false }: {
   label: string;
   bps: BillingProject[];
   basePath: string;
   emptyMessage: string;
   defaultOpen?: boolean;
+  showQuote?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [sortKey, setSortKey] = useState<BPSortKey>('name');
@@ -179,6 +185,7 @@ export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defau
             <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
                 <SortTh label="Name"  sortKey="name"  current={sortKey} dir={sortDir} onSort={handleSort} />
+                {showQuote && <SortTh label="Quote" sortKey="quote" current={sortKey} dir={sortDir} onSort={handleSort} />}
                 <SortTh label="Spent" sortKey="spent" current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Limit" sortKey="limit" current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Usage" sortKey="usage" current={sortKey} dir={sortDir} onSort={handleSort} />
@@ -194,6 +201,13 @@ export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defau
                         {bp.billing_project}
                       </a>
                     </td>
+                    {showQuote && (
+                      <td className="p-3 text-slate-700">
+                        <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-blue-600 hover:underline">
+                          {bp.quote_name}
+                        </a>
+                      </td>
+                    )}
                     <td className="p-3 text-slate-700">{fmtDollars(bp.accrued_cost)}</td>
                     <td className="p-3 text-slate-700">{fmtDollars(bp.limit)}</td>
                     <td className="p-3">
@@ -377,6 +391,132 @@ export function ConfirmModal({ title, message, confirmLabel = 'Confirm', danger 
             className={`text-white px-4 py-1.5 rounded text-sm disabled:opacity-50 ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
           >
             {submitting ? 'Working…' : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function CreateBpModal({ basePath, fixedQuoteName, onClose, onCreated }: {
+  basePath: string;
+  fixedQuoteName?: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [quoteName, setQuoteName] = useState(fixedQuoteName ?? '');
+  const [quotes, setQuotes] = useState<Quote[] | null>(null);
+  const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
+  const [limit, setLimit] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (fixedQuoteName) return;
+    fetchJson<Quote[]>(`${basePath}/api/v1alpha/quotes`)
+      .then((qs) => { setQuotes(qs); if (qs.length > 0) setQuoteName(qs[0].name); })
+      .catch(() => setQuotes([]));
+  }, [basePath, fixedQuoteName]);
+
+  useEffect(() => {
+    if (!quoteName) return;
+    setSelectedQuote(null);
+    fetchJson<Quote>(`${basePath}/api/v1alpha/quotes/${encodeURIComponent(quoteName)}`)
+      .then(setSelectedQuote)
+      .catch(() => {});
+  }, [basePath, quoteName]);
+
+  const allocated = selectedQuote?.billing_projects.reduce((s, bp) => s + (bp.limit ?? 0), 0) ?? 0;
+  const maxAvailable = selectedQuote?.authorized_amount !== null && selectedQuote?.authorized_amount !== undefined
+    ? selectedQuote.authorized_amount - allocated
+    : null;
+  const limitRequired = maxAvailable !== null;
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { setError('Name is required.'); return; }
+    if (!quoteName) { setError('Quote is required.'); return; }
+    if (limitRequired && limit === '') { setError('A limit is required for this quote.'); return; }
+    const limitVal = limit === '' ? null : parseFloat(limit);
+    if (maxAvailable !== null && limitVal !== null && limitVal > maxAvailable) {
+      setError(`Limit cannot exceed ${fmtDollars(maxAvailable)} (remaining on this quote).`);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await apiCall('POST', `${basePath}/api/v1alpha/billing_projects/${encodeURIComponent(name)}/create`, {
+        quote_name: quoteName,
+        limit: limitVal,
+      });
+      onCreated();
+      onClose();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+      <div className="bg-white rounded shadow-lg w-full max-w-md p-6">
+        <h2 className="text-xl font-light mb-4">New Billing Project</h2>
+        <div className="space-y-3 text-sm">
+          <div>
+            <label className="block mb-1 text-slate-600">Name <span className="text-red-500">*</span></label>
+            <input
+              type="text" value={name} onChange={(e) => setName(e.target.value)}
+              className="border rounded px-2 py-1 w-full" spellCheck={false} autoCorrect="off" autoFocus
+            />
+          </div>
+          <div>
+            <label className="block mb-1 text-slate-600">Quote <span className="text-red-500">*</span></label>
+            {fixedQuoteName ? (
+              <span className="text-slate-700">{fixedQuoteName}</span>
+            ) : quotes === null ? (
+              <span className="text-slate-400 text-xs">Loading…</span>
+            ) : (
+              <select
+                value={quoteName}
+                onChange={(e) => setQuoteName(e.target.value)}
+                className="border rounded px-2 py-1 w-full"
+              >
+                {quotes.map((q) => <option key={q.id} value={q.name}>{q.name}</option>)}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="block mb-1 text-slate-600">
+              Limit{limitRequired && <span className="text-red-500"> *</span>}
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-slate-500">$</span>
+              <input
+                type="number" min="0" step="0.01" value={limit}
+                onChange={(e) => setLimit(e.target.value)}
+                className="border rounded px-2 py-1 w-full" placeholder="1.00"
+              />
+            </div>
+            {selectedQuote !== null && (
+              <p className="text-slate-500 text-xs mt-1">
+                {maxAvailable !== null
+                  ? `${fmtDollars(maxAvailable)} remains unallocated in this quote`
+                  : 'leave empty for unlimited'}
+              </p>
+            )}
+          </div>
+        </div>
+        {error && <div className="text-red-600 text-xs mt-2">{error}</div>}
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="border border-gray-300 px-3 py-1.5 rounded text-sm hover:bg-slate-50">
+            Cancel
+          </button>
+          <button
+            onClick={() => void handleSubmit()} disabled={saving}
+            className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            Create
           </button>
         </div>
       </div>
