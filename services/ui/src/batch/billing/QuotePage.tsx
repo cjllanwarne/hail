@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Quote, BillingProject, BillingEvent } from './api';
+import type { Quote, BillingEvent } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtDollars, fmtCost, fmtTimestamp } from './fmt';
 import type { BillingRole } from './permissions';
 import { can } from './permissions';
-import { SectionHeader, ErrorBanner, EditableRow, EventLog } from './shared';
+import { SectionHeader, ErrorBanner, EditableRow, EventLog, BillingProjectsTable, BudgetBar } from './shared';
 
 interface Props {
   basePath: string;
@@ -22,9 +22,7 @@ const QUOTE_EVENT_COLUMNS = [
   { key: 'comment' as const, label: 'Comment', render: (v: unknown) => <span className="text-slate-500 italic">{String(v ?? '')}</span> },
 ];
 
-function isLowBudget(bp: BillingProject): boolean {
-  return bp.remaining !== null && bp.low_budget_alert !== null && bp.remaining < bp.low_budget_alert;
-}
+
 
 export function QuotePage({ basePath, quoteName, billingRole }: Props) {
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -97,6 +95,9 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
   const canEdit = can(billingRole, 'edit_quote');
   const canManageManagers = can(billingRole, 'manage_managers');
 
+  const totalDistributed = quote.billing_projects.reduce((s, bp) => s + (bp.limit ?? 0), 0);
+  const totalSpent = quote.billing_projects.reduce((s, bp) => s + bp.accrued_cost, 0);
+
   return (
     <div className="max-w-4xl">
       <div className="flex items-center gap-2 mb-6 text-2xl font-light">
@@ -117,15 +118,6 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
               onSave={(val) => patch({ cost_object: val })}
             />
             <EditableRow
-              label="Authorized Amount"
-              value={quote.authorized_amount !== null ? String(quote.authorized_amount) : ''}
-              displayValue={fmtDollars(quote.authorized_amount)}
-              canEdit={canEdit}
-              inputType="number"
-              placeholder="blank = unlimited"
-              onSave={(val) => patch({ authorized_amount: val === '' ? 'unlimited' : parseFloat(val) })}
-            />
-            <EditableRow
               label="PI Name"
               value={quote.pi_name ?? ''}
               canEdit={canEdit}
@@ -141,47 +133,42 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
         </table>
       </section>
 
-      {/* Billing Projects */}
+      {/* Funding */}
       <section className="border rounded mb-6">
-        <SectionHeader label="Billing Projects" />
-        {quote.billing_projects.length > 0 ? (
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="text-left p-3 font-medium">Name</th>
-                  <th className="text-left p-3 font-medium">Status</th>
-                  <th className="text-left p-3 font-medium">Limit</th>
-                  <th className="text-left p-3 font-medium">Accrued</th>
-                  <th className="text-left p-3 font-medium">Remaining</th>
-                  <th className="text-left p-3 font-medium">Alert</th>
-                </tr>
-              </thead>
-              <tbody>
-                {quote.billing_projects.map((bp) => {
-                  const low = isLowBudget(bp);
-                  return (
-                    <tr key={bp.billing_project} className={`border-t hover:bg-slate-50 ${low ? 'bg-amber-50' : ''}`}>
-                      <td className="p-3">
-                        <a href={`${basePath}/billing_projects/${bp.billing_project}`} className="text-blue-600 hover:underline">
-                          {bp.billing_project}
-                        </a>
-                      </td>
-                      <td className="p-3 text-slate-500">{bp.status}</td>
-                      <td className="p-3">{fmtDollars(bp.limit)}</td>
-                      <td className="p-3">{fmtCost(bp.accrued_cost)}</td>
-                      <td className={`p-3 ${low ? 'text-amber-700 font-medium' : ''}`}>{fmtDollars(bp.remaining)}</td>
-                      <td className="p-3 text-slate-500">{fmtDollars(bp.low_budget_alert)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="p-4 text-sm text-slate-500">No billing projects under this quote.</p>
-        )}
+        <SectionHeader label="Funding" />
+        <table className="w-full text-sm">
+          <tbody>
+            <EditableRow
+              label="Authorized Amount"
+              value={quote.authorized_amount !== null ? String(quote.authorized_amount) : ''}
+              displayValue={fmtDollars(quote.authorized_amount)}
+              canEdit={canEdit}
+              inputType="number"
+              prefix="$"
+              placeholder="blank = unlimited"
+              onSave={(val) => patch({ authorized_amount: val === '' ? 'unlimited' : parseFloat(val) })}
+            />
+            <tr className="border-b border-slate-100">
+              <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Allocated</td>
+              <td className="py-2 pr-4 align-middle" colSpan={2}>
+                <BudgetBar accrued={totalDistributed} limit={quote.authorized_amount} alert={null} />
+              </td>
+            </tr>
+            <tr className="border-b border-slate-100">
+              <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Spent</td>
+              <td className="py-2 pr-4 align-middle" colSpan={2}>{fmtCost(totalSpent)}</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
+
+      {/* Open Billing Projects */}
+      <BillingProjectsTable
+        label="Open Billing Projects"
+        bps={quote.billing_projects.filter((bp) => bp.status === 'open')}
+        basePath={basePath}
+        emptyMessage="No open billing projects under this quote."
+      />
 
       {/* Managers */}
       <section className="border rounded mb-6">
@@ -190,14 +177,14 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
           <table className="w-full text-sm mb-3">
             <tbody>
               {quote.managers.map((m) => (
-                <tr key={m.user} className="group hover:bg-slate-50">
+                <tr key={m.user} className="hover:bg-slate-50">
                   <td className="py-1 pr-4">{m.user}</td>
                   <td className="py-1 pr-4 text-slate-500">{m.role}</td>
-                  <td className="py-1">
+                  <td className="py-1 text-right">
                     {canManageManagers && (
                       <button
                         onClick={() => void removeManager(m.user)}
-                        className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 flex items-center text-xs"
+                        className="text-red-400 hover:text-red-600"
                       >
                         <span className="material-symbols-outlined text-base">close</span>
                       </button>
@@ -241,6 +228,15 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
         <SectionHeader label="Event Log" />
         <EventLog events={events} columns={QUOTE_EVENT_COLUMNS} />
       </section>
+
+      {/* Closed Billing Projects */}
+      <BillingProjectsTable
+        label="Closed Billing Projects"
+        bps={quote.billing_projects.filter((bp) => bp.status !== 'open')}
+        basePath={basePath}
+        emptyMessage="No closed billing projects under this quote."
+        defaultOpen={false}
+      />
     </div>
   );
 }

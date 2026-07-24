@@ -1,6 +1,216 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import type { BillingEvent } from './api';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
+import type { BillingEvent, BillingProject } from './api';
+import { fmtCost, fmtDollars } from './fmt';
+
+interface BudgetBarProps {
+  accrued: number;
+  limit: number | null;
+  alert: number | null;
+}
+
+export function BudgetBar({ accrued, limit, alert }: BudgetBarProps) {
+  const isOver = limit !== null && accrued >= limit;
+  const isLow = !isOver && alert !== null && accrued >= alert;
+
+  if (limit === null) {
+    return (
+      <div>
+        <div className="relative h-5 bg-slate-200 rounded overflow-hidden">
+          <div className="absolute left-0 top-0 h-full w-1 bg-green-400" />
+        </div>
+        <div className="text-xs text-slate-500 mt-1">{fmtCost(accrued)}</div>
+      </div>
+    );
+  }
+
+  const total = Math.max(limit, accrued);
+  const data = [{ accrued, remaining: Math.max(0, limit - accrued) }];
+
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={32}>
+        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+          <XAxis type="number" domain={[0, total]} hide />
+          <YAxis type="category" hide />
+          <Bar dataKey="accrued" stackId="a" fill={isOver ? '#ef4444' : isLow ? '#fbbf24' : '#38bdf8'} radius={[3, 0, 0, 3]} isAnimationActive={false} />
+          <Bar dataKey="remaining" stackId="a" fill="#e2e8f0" radius={[0, 3, 3, 0]} isAnimationActive={false} />
+          {alert !== null && <ReferenceLine x={alert} stroke="#f59e0b" strokeWidth={2} />}
+        </BarChart>
+      </ResponsiveContainer>
+      <div className={`text-xs mt-1 ${isLow ? 'text-amber-700 font-medium' : 'text-slate-500'}`}>
+        {fmtCost(accrued)}
+      </div>
+    </div>
+  );
+}
+
+export function CompactBudgetBar({ accrued, limit, alert }: BudgetBarProps) {
+  if (limit === null) {
+    return (
+      <div className="relative min-w-[120px] h-3 bg-slate-200 rounded overflow-hidden">
+        <div className="absolute left-0 top-0 h-full w-1 bg-green-400" />
+      </div>
+    );
+  }
+
+  const isOver = accrued >= limit;
+  const isLow = !isOver && alert !== null && accrued >= alert;
+  const pct = Math.min((accrued / limit) * 100, 100);
+  const alertPct = alert !== null ? Math.min((alert / limit) * 100, 100) : null;
+
+  return (
+    <div className="relative min-w-[120px] h-3 bg-slate-200 rounded overflow-visible">
+      <div
+        className={`h-full rounded ${isOver ? 'bg-red-500' : isLow ? 'bg-amber-400' : 'bg-sky-400'}`}
+        style={{ width: `${pct}%` }}
+      />
+      {alertPct !== null && (
+        <div className="absolute top-0 h-full w-px bg-amber-500" style={{ left: `${alertPct}%` }} />
+      )}
+    </div>
+  );
+}
+
+function isLowBudget(bp: BillingProject): boolean {
+  return bp.low_budget_alert !== null && bp.accrued_cost >= bp.low_budget_alert;
+}
+
+type BPSortKey = 'name' | 'spent' | 'limit' | 'usage';
+type SortDir = 'asc' | 'desc';
+
+const SORT_DEFAULT_DIR: Record<BPSortKey, SortDir> = {
+  name: 'asc',
+  spent: 'desc',
+  limit: 'desc',
+  usage: 'desc',
+};
+
+function sortBps(bps: BillingProject[], key: BPSortKey, dir: SortDir): BillingProject[] {
+  return [...bps].sort((a, b) => {
+    let cmp = 0;
+    switch (key) {
+      case 'name':
+        cmp = a.billing_project.localeCompare(b.billing_project);
+        break;
+      case 'spent':
+        cmp = a.accrued_cost - b.accrued_cost;
+        break;
+      case 'limit':
+        // treat null (unlimited) as Infinity — largest value, so first when descending
+        if (a.limit === null && b.limit === null) cmp = 0;
+        else if (a.limit === null) cmp = 1;
+        else if (b.limit === null) cmp = -1;
+        else cmp = a.limit - b.limit;
+        break;
+      case 'usage': {
+        const pA = a.limit === null ? 0 : a.accrued_cost / a.limit;
+        const pB = b.limit === null ? 0 : b.accrued_cost / b.limit;
+        cmp = pA - pB;
+        if (cmp === 0) {
+          if (a.limit === null && b.limit === null) cmp = 0;
+          else if (a.limit === null) cmp = 1;
+          else if (b.limit === null) cmp = -1;
+          else cmp = a.limit - b.limit;
+        }
+        break;
+      }
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function SortTh({ label, sortKey, current, dir, onSort }: {
+  label: string;
+  sortKey: BPSortKey;
+  current: BPSortKey;
+  dir: SortDir;
+  onSort: (k: BPSortKey) => void;
+}) {
+  const active = sortKey === current;
+  return (
+    <th
+      className="text-left p-3 font-medium cursor-pointer select-none hover:bg-slate-100"
+      onClick={() => onSort(sortKey)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className="material-symbols-outlined text-sm text-slate-400">
+          {active ? (dir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+        </span>
+      </div>
+    </th>
+  );
+}
+
+export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defaultOpen = true }: {
+  label: string;
+  bps: BillingProject[];
+  basePath: string;
+  emptyMessage: string;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [sortKey, setSortKey] = useState<BPSortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const handleSort = (key: BPSortKey) => {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir(SORT_DEFAULT_DIR[key]); }
+  };
+
+  const sorted = sortBps(bps, sortKey, sortDir);
+
+  return (
+    <section className="border rounded mb-6">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-t text-left hover:bg-slate-200"
+      >
+        <span className="material-symbols-outlined text-slate-500 text-base">
+          {open ? 'expand_more' : 'chevron_right'}
+        </span>
+        <span className="font-medium text-sm uppercase tracking-wide text-slate-600">{label} ({bps.length})</span>
+      </button>
+      {open && (bps.length > 0 ? (
+        <div className="overflow-y-auto" style={{ maxHeight: '28rem' }}>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 sticky top-0 z-10">
+              <tr>
+                <SortTh label="Name"  sortKey="name"  current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Spent" sortKey="spent" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Limit" sortKey="limit" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="Usage" sortKey="usage" current={sortKey} dir={sortDir} onSort={handleSort} />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((bp) => {
+                const low = isLowBudget(bp);
+                return (
+                  <tr key={bp.billing_project} className={`border-t hover:bg-slate-50 ${low ? 'bg-amber-50' : ''}`}>
+                    <td className="p-3">
+                      <a href={`${basePath}/billing_projects/${bp.billing_project}`} className="text-blue-600 hover:underline">
+                        {bp.billing_project}
+                      </a>
+                    </td>
+                    <td className="p-3 text-slate-700">{fmtDollars(bp.accrued_cost)}</td>
+                    <td className="p-3 text-slate-700">{fmtDollars(bp.limit)}</td>
+                    <td className="p-3">
+                      <CompactBudgetBar accrued={bp.accrued_cost} limit={bp.limit} alert={bp.low_budget_alert} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="p-4 text-sm text-slate-500">{emptyMessage}</p>
+      ))}
+    </section>
+  );
+}
 
 export function SectionHeader({ label }: { label: string }) {
   return (
@@ -33,11 +243,12 @@ interface EditableRowProps {
   displayValue?: string;
   canEdit: boolean;
   inputType?: 'text' | 'number';
+  prefix?: string;
   placeholder?: string;
   onSave: (val: string) => Promise<void>;
 }
 
-export function EditableRow({ label, value, displayValue, canEdit, inputType = 'text', placeholder, onSave }: EditableRowProps) {
+export function EditableRow({ label, value, displayValue, canEdit, inputType = 'text', prefix, placeholder, onSave }: EditableRowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
@@ -57,34 +268,39 @@ export function EditableRow({ label, value, displayValue, canEdit, inputType = '
   };
 
   return (
-    <tr className="border-b border-slate-100 group">
+    <tr className="border-b border-slate-100">
       <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">{label}</td>
       <td className="py-2 align-middle">
         {editing ? (
-          <div className="flex items-center gap-2">
-            <input
-              type={inputType}
-              min={inputType === 'number' ? '0' : undefined}
-              step={inputType === 'number' ? '0.01' : undefined}
-              className="border rounded px-2 py-1 w-40 text-sm"
-              value={draft}
-              placeholder={placeholder}
-              onChange={(e) => setDraft(e.target.value)}
-              autoFocus
-            />
-            <button
-              onClick={() => void handleSave()}
-              disabled={saving}
-              className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-            >
-              Save
-            </button>
-            <button
-              onClick={() => { setEditing(false); setDraft(value); setError(null); }}
-              className="text-slate-500 hover:text-slate-700 text-sm"
-            >
-              Cancel
-            </button>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
+              {prefix && <span className="text-sm text-slate-500">{prefix}</span>}
+              <input
+                type={inputType}
+                min={inputType === 'number' ? '0' : undefined}
+                step={inputType === 'number' ? '0.01' : undefined}
+                className="border rounded px-2 py-1 w-40 text-sm"
+                value={draft}
+                placeholder={placeholder}
+                onChange={(e) => setDraft(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void handleSave()}
+                disabled={saving}
+                className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => { setEditing(false); setDraft(value); setError(null); }}
+                className="text-slate-500 hover:text-slate-700 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         ) : (
           <span>{displayValue ?? (value || '—')}</span>
@@ -95,7 +311,7 @@ export function EditableRow({ label, value, displayValue, canEdit, inputType = '
         {canEdit && !editing && (
           <button
             onClick={() => { setDraft(value); setEditing(true); setError(null); }}
-            className="hover:bg-slate-200 rounded p-0.5 opacity-0 group-hover:opacity-100"
+            className="hover:bg-slate-200 rounded p-0.5 text-slate-400 hover:text-slate-600"
           >
             <span className="material-symbols-outlined text-base">edit</span>
           </button>
