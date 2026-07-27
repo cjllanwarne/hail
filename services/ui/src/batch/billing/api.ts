@@ -47,11 +47,18 @@ export async function fetchJson<T>(url: string): Promise<T> {
   return resp.json() as Promise<T>;
 }
 
+function getCsrfToken(): string {
+  const match = document.cookie.split('; ').find((c) => c.startsWith('_csrf='));
+  return match ? decodeURIComponent(match.split('=')[1]) : '';
+}
+
 export async function apiCall(method: string, url: string, body?: object): Promise<void> {
+  const headers: Record<string, string> = { 'X-CSRF-Token': getCsrfToken() };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   const resp = await fetch(url, {
     method,
     credentials: 'same-origin',
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!resp.ok) {
