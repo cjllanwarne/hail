@@ -1,10 +1,99 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { BillingProject, BillingEvent } from './api';
+import type { BillingProject, BillingEvent, Quote } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtDollars, fmtTimestamp } from './fmt';
 import type { BillingRole } from './permissions';
 import { can } from './permissions';
 import { SectionHeader, ErrorBanner, EditableRow, EventLog, ConfirmModal, BudgetBar } from './shared';
+
+function MoveQuoteModal({ basePath, bpName, currentQuoteName, onClose, onMoved }: {
+  basePath: string;
+  bpName: string;
+  currentQuoteName: string;
+  onClose: () => void;
+  onMoved: () => void;
+}) {
+  const [quotes, setQuotes] = useState<Quote[] | null>(null);
+  const [destQuote, setDestQuote] = useState('');
+  const [comment, setComment] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchJson<Quote[]>(`${basePath}/api/v1alpha/quotes`)
+      .then((qs) => {
+        const others = qs.filter((q) => q.name !== currentQuoteName);
+        setQuotes(others);
+        if (others.length > 0) setDestQuote(others[0].name);
+      })
+      .catch(() => setQuotes([]));
+  }, [basePath, currentQuoteName]);
+
+  const handleSubmit = async () => {
+    if (!destQuote) { setError('Select a destination quote.'); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await apiCall('POST', `${basePath}/api/v1alpha/billing_projects/${encodeURIComponent(bpName)}/change_quote`, {
+        quote_name: destQuote,
+        comment: comment || undefined,
+      });
+      onMoved();
+      onClose();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+      <div className="bg-white rounded shadow-lg w-full max-w-md p-6">
+        <h2 className="text-xl font-light mb-4">Move to another quote</h2>
+        <div className="space-y-3 text-sm">
+          <div>
+            <label className="block mb-1 text-slate-600">Destination quote <span className="text-red-500">*</span></label>
+            {quotes === null ? (
+              <span className="text-slate-400 text-xs">Loading…</span>
+            ) : quotes.length === 0 ? (
+              <span className="text-slate-500 text-xs">No other quotes available.</span>
+            ) : (
+              <select
+                value={destQuote}
+                onChange={(e) => setDestQuote(e.target.value)}
+                className="border rounded px-2 py-1 w-full"
+              >
+                {quotes.map((q) => <option key={q.id} value={q.name}>{q.name}</option>)}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="block mb-1 text-slate-600">Comment <span className="text-slate-400">(optional)</span></label>
+            <textarea
+              value={comment} onChange={(e) => setComment(e.target.value)}
+              rows={3} className="border rounded px-2 py-1 w-full text-sm resize-none"
+              placeholder="Reason for moving…"
+            />
+          </div>
+        </div>
+        {error && <div className="text-red-600 text-xs mt-2">{error}</div>}
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="border border-gray-300 px-3 py-1.5 rounded text-sm hover:bg-slate-50">
+            Cancel
+          </button>
+          <button
+            onClick={() => void handleSubmit()}
+            disabled={saving || !destQuote || (quotes !== null && quotes.length === 0)}
+            className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            Move
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   basePath: string;
@@ -131,7 +220,7 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [addUser, setAddUser] = useState('');
   const [memberError, setMemberError] = useState<string | null>(null);
-  const [modal, setModal] = useState<'close' | 'reopen' | null>(null);
+  const [modal, setModal] = useState<'close' | 'reopen' | 'move' | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -204,6 +293,7 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
   const canEditAlert = can(billingRole, 'edit_bp_alert');
   const canManageMembers = can(billingRole, 'manage_bp_members');
   const canCloseReopen = can(billingRole, 'close_reopen_bp');
+  const canChangeQuote = can(billingRole, 'change_bp_quote');
 
   return (
     <div className="max-w-4xl">
@@ -311,11 +401,11 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
       </section>
 
       {/* Actions */}
-      {canCloseReopen && (
+      {(canCloseReopen || canChangeQuote) && (
         <section className="border rounded mb-6">
           <SectionHeader label="Actions" />
-          <div className="p-4">
-            {bp.status === 'open' ? (
+          <div className="p-4 flex flex-wrap gap-2">
+            {canCloseReopen && (bp.status === 'open' ? (
               <button
                 onClick={() => setModal('close')}
                 className="bg-red-600 text-white px-3 py-1.5 rounded text-sm hover:bg-red-700"
@@ -328,6 +418,14 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
                 className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700"
               >
                 Reopen billing project
+              </button>
+            ))}
+            {canChangeQuote && (
+              <button
+                onClick={() => setModal('move')}
+                className="border border-slate-300 px-3 py-1.5 rounded text-sm hover:bg-slate-50"
+              >
+                Move to another quote
               </button>
             )}
           </div>
@@ -350,6 +448,15 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
           confirmLabel="Reopen billing project"
           onConfirm={handleReopen}
           onClose={() => setModal(null)}
+        />
+      )}
+      {modal === 'move' && (
+        <MoveQuoteModal
+          basePath={basePath}
+          bpName={bpName}
+          currentQuoteName={bp.quote_name}
+          onClose={() => setModal(null)}
+          onMoved={() => void fetchData()}
         />
       )}
 

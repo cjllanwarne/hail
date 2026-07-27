@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Quote, BillingEvent } from './api';
 import { fetchJson, apiCall } from './api';
-import { fmtDollars, fmtCost, fmtTimestamp } from './fmt';
+import { fmtDollars, fmtTimestamp } from './fmt';
 import type { BillingRole } from './permissions';
 import { can } from './permissions';
-import { SectionHeader, ErrorBanner, EditableRow, EventLog, BillingProjectsTable, BudgetBar, CreateBpModal } from './shared';
+import { SectionHeader, ErrorBanner, EditableRow, EventLog, BillingProjectsTable, QuoteBudgetBar, CreateBpModal } from './shared';
 
 interface Props {
   basePath: string;
@@ -153,14 +153,10 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
               onSave={(val) => patch({ authorized_amount: val === '' ? 'unlimited' : parseFloat(val) })}
             />
             <tr className="border-b border-slate-100">
-              <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Allocated</td>
+              <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Usage</td>
               <td className="py-2 pr-4 align-middle" colSpan={2}>
-                <BudgetBar accrued={totalDistributed} limit={quote.authorized_amount} alert={null} />
+                <QuoteBudgetBar spent={totalSpent} allocated={totalDistributed} authorized={quote.authorized_amount} />
               </td>
-            </tr>
-            <tr className="border-b border-slate-100">
-              <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Spent</td>
-              <td className="py-2 pr-4 align-middle" colSpan={2}>{fmtCost(totalSpent)}</td>
             </tr>
           </tbody>
         </table>

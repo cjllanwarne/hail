@@ -47,6 +47,64 @@ export function BudgetBar({ accrued, limit, alert }: BudgetBarProps) {
   );
 }
 
+export function QuoteBudgetBar({ spent, allocated, authorized }: {
+  spent: number;
+  allocated: number;
+  authorized: number | null;
+}) {
+  if (authorized === null) {
+    return (
+      <div>
+        <div className="relative h-5 bg-slate-200 rounded overflow-hidden">
+          <div className="absolute left-0 top-0 h-full w-1 bg-green-400" />
+        </div>
+        <div className="text-xs text-slate-500 mt-1">{fmtDollars(allocated)} allocated · {fmtCost(spent)} spent</div>
+      </div>
+    );
+  }
+
+  const allocPct = Math.min((allocated / authorized) * 100, 100);
+  const spentPct = Math.min((spent / authorized) * 100, 100);
+
+  return (
+    <div>
+      <div className="relative w-full h-5 bg-slate-200 rounded overflow-hidden">
+        <div className="absolute left-0 top-0 h-full bg-blue-400 rounded" style={{ width: `${allocPct}%` }} />
+        <div className="absolute left-0 top-0 h-full bg-teal-400 rounded" style={{ width: `${spentPct}%` }} />
+      </div>
+      <div className="text-xs text-slate-500 mt-1 flex gap-3">
+        <span><span className="inline-block w-2 h-2 rounded-sm bg-teal-400 mr-1" />spent {fmtCost(spent)}</span>
+        <span><span className="inline-block w-2 h-2 rounded-sm bg-blue-400 mr-1" />allocated {fmtDollars(allocated)}</span>
+        <span><span className="inline-block w-2 h-2 rounded-sm bg-slate-200 mr-1" />unallocated {fmtDollars(authorized - allocated)}</span>
+      </div>
+    </div>
+  );
+}
+
+export function QuoteCompactBudgetBar({ spent, allocated, authorized }: {
+  spent: number;
+  allocated: number;
+  authorized: number | null;
+}) {
+  if (authorized === null) {
+    return (
+      <div className="relative min-w-[120px] h-3 bg-slate-200 rounded overflow-hidden">
+        <div className="absolute left-0 top-0 h-full w-1 bg-green-400" />
+      </div>
+    );
+  }
+
+  const allocPct = Math.min((allocated / authorized) * 100, 100);
+  const spentPct = Math.min((spent / authorized) * 100, 100);
+
+  return (
+    <div className="relative min-w-[120px] h-3 bg-slate-200 rounded overflow-hidden">
+      <div className="absolute left-0 top-0 h-full bg-blue-400 rounded" style={{ width: `${allocPct}%` }} />
+      <div className="absolute left-0 top-0 h-full bg-teal-400 rounded" style={{ width: `${spentPct}%` }} />
+    </div>
+  );
+}
+
 export function CompactBudgetBar({ accrued, limit, alert }: BudgetBarProps) {
   if (limit === null) {
     return (
