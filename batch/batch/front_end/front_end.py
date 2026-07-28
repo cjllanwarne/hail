@@ -3106,6 +3106,13 @@ async def _query_billing(
 @auth.authenticated_users_only()
 @catch_ui_error_in_dev
 async def ui_get_billing(request, userdata):
+    if request.cookies.get('hail_react_ui') == '1':
+        date_format = '%m/%d/%Y'
+        default_start = datetime.datetime.now().replace(day=1).strftime(date_format)
+        start = request.query.get('start', default_start)
+        end = request.query.get('end', '')
+        return await render_template('batch', request, userdata, 'billing_react.html', {'start': start, 'end': end})
+
     if not userdata['system_permissions'].get(SystemPermission.READ_ALL_BILLING_PROJECTS, False):
         user = userdata['username']
         quote_manager_user = user
