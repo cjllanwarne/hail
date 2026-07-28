@@ -3101,6 +3101,52 @@ async def _query_billing(
     return (billing, start_query, end_query)
 
 
+async def _query_billing_by_quote(
+    db: Database,
+    start_str: str,
+    end_str: Optional[str],
+    username: Optional[str],
+) -> list:
+    date_format = '%m/%d/%Y'
+    start = datetime.datetime.strptime(start_str, date_format)
+    end = datetime.datetime.strptime(end_str, date_format) if end_str else None
+
+    where_conditions = [
+        "billing_projects.`status` != 'deleted'",
+        "billing_date >= %s",
+        "quotes.id IS NOT NULL",
+    ]
+    where_args: List[Any] = [start]
+
+    if end is not None:
+        where_conditions.append("billing_date <= %s")
+        where_args.append(end)
+
+    if username is not None:
+        where_conditions.append("quotes.id IN (SELECT quote_id FROM quote_managers WHERE `user` = %s)")
+        where_args.append(username)
+
+    sql = f"""
+SELECT
+  quote_name,
+  COALESCE(SUM(`usage` * rate), 0) AS cost
+FROM (
+  SELECT resource_id, quotes.name AS quote_name,
+    CAST(COALESCE(SUM(`usage`), 0) AS SIGNED) AS `usage`
+  FROM aggregated_billing_project_user_resources_by_date_v3
+  LEFT JOIN billing_projects ON billing_projects.name = aggregated_billing_project_user_resources_by_date_v3.billing_project
+  LEFT JOIN quotes ON quotes.id = billing_projects.quote_id
+  WHERE {' AND '.join(where_conditions)}
+  GROUP BY resource_id, quote_name
+) AS t
+LEFT JOIN resources ON resources.resource_id = t.resource_id
+GROUP BY quote_name
+ORDER BY quote_name;
+"""
+
+    return [record async for record in db.select_and_fetchall(sql, where_args)]
+
+
 @routes.get('/billing')
 @web_security_headers
 @auth.authenticated_users_only()
@@ -3113,21 +3159,21 @@ async def ui_get_billing(request, userdata):
         end = request.query.get('end', '')
         return await render_template('batch', request, userdata, 'billing_react.html', {'start': start, 'end': end})
 
-    if not userdata['system_permissions'].get(SystemPermission.READ_ALL_BILLING_PROJECTS, False):
-        user = userdata['username']
-        quote_manager_user = user
-    else:
-        user = None
-        quote_manager_user = None
+    is_global_bm = userdata['system_permissions'].get(SystemPermission.READ_ALL_BILLING_PROJECTS, False)
+    current_user = userdata['username']
+    db: Database = request.app['db']
+
+    user = None if is_global_bm else current_user
+    quote_manager_user = None if is_global_bm else current_user
     billing, start, end = await _query_billing(request, user=user, quote_manager_user=quote_manager_user)
 
     billing_by_user: Dict[str, int] = {}
     billing_by_project: Dict[str, int] = {}
     for record in billing:
         billing_project = record['billing_project']
-        user = record['user']
+        record_user = record['user']
         cost = record['cost']
-        billing_by_user[user] = billing_by_user.get(user, 0) + cost
+        billing_by_user[record_user] = billing_by_user.get(record_user, 0) + cost
         billing_by_project[billing_project] = billing_by_project.get(billing_project, 0) + cost
 
     billing_by_project_list = [
@@ -3136,7 +3182,7 @@ async def ui_get_billing(request, userdata):
     ]
     billing_by_project_list.sort(key=lambda record: record['billing_project'])
 
-    billing_by_user_list = [{'user': user, 'cost': cost_str(cost) or '$0'} for user, cost in billing_by_user.items()]
+    billing_by_user_list = [{'user': u, 'cost': cost_str(cost) or '$0'} for u, cost in billing_by_user.items()]
     billing_by_user_list.sort(key=lambda record: record['user'])
 
     billing_by_project_user = [
@@ -3147,14 +3193,36 @@ async def ui_get_billing(request, userdata):
 
     total_cost = cost_str(sum(record['cost'] for record in billing))
 
+    # "By Quote" tab: visible to global-bm (always) or quote managers/owners
+    if is_global_bm:
+        show_quote_tab = True
+        quote_costs: Dict[str, int] = {}
+        for record in billing:
+            qname = record.get('quote_name')
+            if qname:
+                quote_costs[qname] = quote_costs.get(qname, 0) + record['cost']
+        billing_by_quote = [
+            {'quote_name': qn, 'cost': cost_str(cost) or '$0'} for qn, cost in sorted(quote_costs.items())
+        ]
+    else:
+        managed_quotes = await billing_dao.list_quotes_for_user(db, current_user, False)
+        show_quote_tab = bool(managed_quotes)
+        if show_quote_tab:
+            rows = await _query_billing_by_quote(db, start, end, current_user)
+            billing_by_quote = [{'quote_name': r['quote_name'], 'cost': cost_str(r['cost']) or '$0'} for r in rows]
+        else:
+            billing_by_quote = []
+
     page_context = {
         'billing_by_project': billing_by_project_list,
         'billing_by_user': billing_by_user_list,
         'billing_by_project_user': billing_by_project_user,
+        'billing_by_quote': billing_by_quote,
+        'show_quote_tab': show_quote_tab,
         'start': start,
         'end': end,
         'today': datetime.datetime.now().strftime('%m/%d/%Y'),
-        'user': userdata['username'],
+        'user': current_user,
         'total_cost': total_cost,
     }
     return await render_template('batch', request, userdata, 'billing.html', page_context)

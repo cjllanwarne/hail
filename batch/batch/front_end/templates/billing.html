@@ -77,7 +77,7 @@
     <div class='text-xl m-4'>
       Total spend: <span class='font-light text-lg'>{{ total_cost }}</span>
     </div>
-    <div class='bg-white' x-data='{ tab: "{{ "by-bp" if userdata["system_permissions"]["read_all_billing_projects"] else "by-bp-user"}}" }'>
+    <div class='bg-white' x-data='{ tab: "{{ "by-bp" if userdata["system_permissions"]["read_all_billing_projects"] else ("by-quote" if show_quote_tab else "by-bp-user")}}" }'>
       <div class='flex border-b text-lg'>
         {% if userdata['system_permissions']['read_all_billing_projects'] %}
         <div class='px-4 pt-4 pb-2 hover:opacity-100 hover:cursor-pointer hover:border-b border-black'
@@ -87,6 +87,12 @@
         <div class='px-4 pt-4 pb-2 hover:opacity-100 hover:cursor-pointer hover:border-b border-black'
           :class='{"border-b": tab == "by-user", "opacity-50": tab != "by-user"}' x-on:click='tab = "by-user"'>
           By User
+        </div>
+        {% endif %}
+        {% if show_quote_tab %}
+        <div class='px-4 pt-4 pb-2 hover:opacity-100 hover:cursor-pointer hover:border-b border-black'
+          :class='{"border-b": tab == "by-quote", "opacity-50": tab != "by-quote"}' x-on:click='tab = "by-quote"'>
+          By Quote
         </div>
         {% endif %}
         <div class='px-4 pt-4 pb-2 hover:opacity-100 hover:cursor-pointer hover:border-b border-black'
@@ -113,6 +119,20 @@
             {% for row in billing_by_user %}
             <tr class='border-y'>
               <td class='p-2'>{{ row['user'] }}</td>
+              <td class='p-2'>{{ row['cost'] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% if show_quote_tab %}
+      <div class='relative overflow-hidden transition-all' x-show='tab == "by-quote"'>
+        <table class='w-full overflow-auto'>
+          <tbody>
+            {% for row in billing_by_quote %}
+            <tr class='border-y'>
+              <td class='p-2'>{{ row['quote_name'] }}</td>
               <td class='p-2'>{{ row['cost'] }}</td>
             </tr>
             {% endfor %}
