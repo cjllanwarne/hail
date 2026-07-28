@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import type { BillingProject, BillingEvent, Quote } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtDollars, fmtTimestamp } from './fmt';
-import type { BillingRole } from './permissions';
 import { can } from './permissions';
 import { SectionHeader, ErrorBanner, EditableRow, EventLog, ConfirmModal, BudgetBar } from './shared';
 
@@ -98,7 +97,6 @@ function MoveQuoteModal({ basePath, bpName, currentQuoteName, onClose, onMoved }
 interface Props {
   basePath: string;
   bpName: string;
-  billingRole: BillingRole;
 }
 
 const BP_EVENT_COLUMNS = [
@@ -213,7 +211,7 @@ function AlertThresholdRow({ alert, limit, canEdit, onSave }: {
   );
 }
 
-export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
+export function BillingProjectPage({ basePath, bpName }: Props) {
   const [bp, setBp] = useState<BillingProject | null>(null);
   const [events, setEvents] = useState<BillingEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -289,6 +287,7 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
   if (error) return <ErrorBanner message={error} />;
   if (!bp) return null;
 
+  const billingRole = bp?.billing_role ?? null;
   const canEditLimit = can(billingRole, 'edit_bp_limit');
   const canEditAlert = can(billingRole, 'edit_bp_alert');
   const canManageMembers = can(billingRole, 'manage_bp_members');

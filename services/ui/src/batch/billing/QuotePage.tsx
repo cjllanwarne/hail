@@ -2,14 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Quote, BillingEvent } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtDollars, fmtTimestamp } from './fmt';
-import type { BillingRole } from './permissions';
 import { can } from './permissions';
 import { SectionHeader, ErrorBanner, EditableRow, EventLog, BillingProjectsTable, QuoteBudgetBar, CreateBpModal, ConfirmModal } from './shared';
 
 interface Props {
   basePath: string;
   quoteName: string;
-  billingRole: BillingRole;
 }
 
 const QUOTE_EVENT_COLUMNS = [
@@ -24,7 +22,7 @@ const QUOTE_EVENT_COLUMNS = [
 
 
 
-export function QuotePage({ basePath, quoteName, billingRole }: Props) {
+export function QuotePage({ basePath, quoteName }: Props) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [events, setEvents] = useState<BillingEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,6 +92,7 @@ export function QuotePage({ basePath, quoteName, billingRole }: Props) {
   if (error) return <ErrorBanner message={error} />;
   if (!quote) return null;
 
+  const billingRole = quote.billing_role;
   const canEdit = can(billingRole, 'edit_quote');
   const canManageManagers = can(billingRole, 'manage_managers');
   const canCreateBp = can(billingRole, 'create_bp');

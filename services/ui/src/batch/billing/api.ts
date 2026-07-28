@@ -10,6 +10,7 @@ export interface BillingProject {
   remaining: number | null;
   accrued_cost: number;
   description: string | null;
+  billing_role: import('./permissions').BillingRole | null;
 }
 
 export interface QuoteManager {
@@ -30,6 +31,7 @@ export interface Quote {
   time_created: string;
   managers: QuoteManager[];
   billing_projects: BillingProject[];
+  billing_role: import('./permissions').BillingRole | null;
 }
 
 export interface BillingEvent {

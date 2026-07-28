@@ -4,7 +4,6 @@ import { BillingProjectPage } from './billing/BillingProjectPage';
 import { BillingPage } from './billing/BillingPage';
 import { QuotesPage } from './billing/QuotesPage';
 import { QuotePage } from './billing/QuotePage';
-import type { BillingRole } from './billing/permissions';
 
 const handlers: Record<string, () => void> = {
   'billing-root': () => {
@@ -36,9 +35,8 @@ const handlers: Record<string, () => void> = {
     const el = document.getElementById('billing-project-root')!;
     const basePath = el.dataset.basePath ?? '';
     const bpName = el.dataset.bpName ?? '';
-    const billingRole = (el.dataset.billingRole ?? '') as BillingRole;
     createRoot(el).render(
-      <BillingProjectPage basePath={basePath} bpName={bpName} billingRole={billingRole} />
+      <BillingProjectPage basePath={basePath} bpName={bpName} />
     );
   },
   'quotes-root': () => {
@@ -51,9 +49,8 @@ const handlers: Record<string, () => void> = {
     const el = document.getElementById('quote-root')!;
     const basePath = el.dataset.basePath ?? '';
     const quoteName = el.dataset.quoteName ?? '';
-    const billingRole = (el.dataset.billingRole ?? '') as BillingRole;
     createRoot(el).render(
-      <QuotePage basePath={basePath} quoteName={quoteName} billingRole={billingRole} />
+      <QuotePage basePath={basePath} quoteName={quoteName} />
     );
   },
 };

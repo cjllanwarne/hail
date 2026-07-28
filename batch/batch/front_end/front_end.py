@@ -3667,7 +3667,6 @@ async def ui_get_billing_project(request: web.Request, userdata) -> web.Response
 
     page_context = {
         'bp_name': billing_project,
-        'billing_role': billing_role,
     }
     return await render_template('batch', request, userdata, 'billing_project_react.html', page_context)
 
@@ -3703,7 +3702,6 @@ async def ui_get_quote(request: web.Request, userdata) -> web.Response:
 
     page_context = {
         'quote_name': quote_name,
-        'billing_role': billing_role,
     }
     return await render_template('batch', request, userdata, 'quote_react.html', page_context)
 
