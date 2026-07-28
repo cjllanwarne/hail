@@ -1,7 +1,7 @@
 export interface BillingProject {
   billing_project: string;
   status: string;
-  users: string[];
+  users: { user: string; roles: string[] }[];
   limit: number | null;
   quote_id: number;
   quote_name: string;

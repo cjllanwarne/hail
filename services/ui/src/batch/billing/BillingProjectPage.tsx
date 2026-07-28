@@ -363,21 +363,35 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
         <div className="p-4">
           <table className="w-full text-sm">
             <tbody>
-              {(bp.users ?? []).map((user) => (
-                <tr key={user} className="hover:bg-slate-50">
-                  <td className="py-1 pr-4">{user}</td>
-                  <td className="py-1 text-right">
-                    {canManageMembers && bp.status === 'open' && (
-                      <button
-                        onClick={() => void removeMember(user)}
-                        className="text-red-400 hover:text-red-600"
-                      >
-                        <span className="material-symbols-outlined text-base">close</span>
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {(bp.users ?? []).map((entry) => {
+                const isExplicitMember = entry.roles.includes(`${bpName}:member`);
+                const quoteRoles = entry.roles.filter((r) => !r.endsWith(':member'));
+                return (
+                  <tr key={entry.user} className="hover:bg-slate-50">
+                    <td className="py-1 pr-4">
+                      {entry.user}
+                      {quoteRoles.map((r) => {
+                        const role = r.split(':')[1];
+                        return (
+                          <span key={r} className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                            {role === 'owner' ? 'quote owner' : 'quote manager'}
+                          </span>
+                        );
+                      })}
+                    </td>
+                    <td className="py-1 text-right">
+                      {canManageMembers && bp.status === 'open' && isExplicitMember && (
+                        <button
+                          onClick={() => void removeMember(entry.user)}
+                          className="text-red-400 hover:text-red-600"
+                        >
+                          <span className="material-symbols-outlined text-base">close</span>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {memberError && <div className="text-red-600 text-xs mt-1">{memberError}</div>}
