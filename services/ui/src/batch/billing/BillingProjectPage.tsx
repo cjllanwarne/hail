@@ -294,15 +294,24 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
   const canManageMembers = can(billingRole, 'manage_bp_members');
   const canCloseReopen = can(billingRole, 'close_reopen_bp');
   const canChangeQuote = can(billingRole, 'change_bp_quote');
+  const canViewQuote = can(billingRole, 'view_quote');
 
   return (
     <div className="max-w-4xl">
       <div className="flex items-center gap-2 mb-6 text-2xl font-light">
         <span className="text-slate-400">Billing</span>
         <span className="text-slate-300">›</span>
-        <a href={`${basePath}/billing/quotes`} className="text-slate-400 hover:text-slate-600">Quotes</a>
+        {canViewQuote ? (
+          <a href={`${basePath}/billing/quotes`} className="text-slate-400 hover:text-slate-600">Quotes</a>
+        ) : (
+          <span className="text-slate-400">Quotes</span>
+        )}
         <span className="text-slate-300">›</span>
-        <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-slate-400 hover:text-slate-600">{bp.quote_name}</a>
+        {canViewQuote ? (
+          <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-slate-400 hover:text-slate-600">{bp.quote_name}</a>
+        ) : (
+          <span className="text-slate-400">{bp.quote_name}</span>
+        )}
         <span className="text-slate-300">›</span>
         <span>{bpName}</span>
         {bp.status === 'open' ? (
@@ -320,9 +329,13 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
             <tr className="border-b border-slate-100">
               <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Quote</td>
               <td className="py-2 align-middle" colSpan={2}>
-                <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-blue-600 hover:underline">
-                  {bp.quote_name}
-                </a>
+                {canViewQuote ? (
+                  <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-blue-600 hover:underline">
+                    {bp.quote_name}
+                  </a>
+                ) : (
+                  bp.quote_name
+                )}
               </td>
             </tr>
             <EditableRow

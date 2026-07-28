@@ -261,9 +261,13 @@ export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defau
                     </td>
                     {showQuote && (
                       <td className="p-3 text-slate-700">
-                        <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-blue-600 hover:underline">
-                          {bp.quote_name}
-                        </a>
+                        {bp.can_view_quote ? (
+                          <a href={`${basePath}/billing/quotes/${bp.quote_name}`} className="text-blue-600 hover:underline">
+                            {bp.quote_name}
+                          </a>
+                        ) : (
+                          bp.quote_name
+                        )}
                       </td>
                     )}
                     <td className="p-3 text-slate-700">{fmtDollars(bp.accrued_cost)}</td>
