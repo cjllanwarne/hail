@@ -3,6 +3,7 @@ export type BillingRole = 'global_bm' | 'quote_owner' | 'quote_manager' | 'bp_me
 export type Permission =
   | 'view_quote'
   | 'edit_quote'
+  | 'close_quote'
   | 'manage_managers'
   | 'view_bp'
   | 'create_bp'
@@ -15,12 +16,12 @@ export type Permission =
 
 const ROLE_PERMISSIONS: Record<BillingRole, Set<Permission>> = {
   global_bm: new Set([
-    'view_quote', 'edit_quote', 'manage_managers',
+    'view_quote', 'edit_quote', 'close_quote', 'manage_managers',
     'view_bp', 'create_bp', 'edit_bp_limit', 'edit_bp_alert',
     'manage_bp_members', 'close_reopen_bp', 'change_bp_quote', 'view_events',
   ]),
   quote_owner: new Set([
-    'view_quote', 'edit_quote', 'manage_managers',
+    'view_quote', 'edit_quote', 'close_quote', 'manage_managers',
     'view_bp', 'create_bp', 'edit_bp_limit', 'edit_bp_alert',
     'manage_bp_members', 'close_reopen_bp', 'change_bp_quote', 'view_events',
   ]),

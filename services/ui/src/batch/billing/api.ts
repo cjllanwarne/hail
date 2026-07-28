@@ -8,6 +8,7 @@ export interface BillingProject {
   low_budget_alert: number | null;
   remaining: number | null;
   accrued_cost: number;
+  description: string | null;
 }
 
 export interface QuoteManager {
@@ -18,10 +19,13 @@ export interface QuoteManager {
 export interface Quote {
   id: number;
   name: string;
+  state: string;
+  quote_number: string | null;
   cost_object: string;
   authorized_amount: number | null;
   pi_name: string | null;
   pm_designee: string | null;
+  description: string | null;
   time_created: string;
   managers: QuoteManager[];
   billing_projects: BillingProject[];

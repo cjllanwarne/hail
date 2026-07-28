@@ -80,10 +80,12 @@ function CreateQuoteModal({
   onCreated: () => void;
 }) {
   const [name, setName] = useState('');
+  const [quoteNumber, setQuoteNumber] = useState('');
   const [costObject, setCostObject] = useState('');
   const [authorizedAmount, setAuthorizedAmount] = useState('');
   const [piName, setPiName] = useState('');
   const [pmDesignee, setPmDesignee] = useState('');
+  const [description, setDescription] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -94,10 +96,12 @@ function CreateQuoteModal({
     setError(null);
     try {
       await apiCall('POST', `${basePath}/api/v1alpha/quotes/${encodeURIComponent(name)}`, {
+        quote_number: quoteNumber || null,
         cost_object: costObject,
         authorized_amount: authorizedAmount === '' ? 'unlimited' : parseFloat(authorizedAmount),
         pi_name: piName || null,
         pm_designee: pmDesignee || null,
+        description: description || null,
       });
       onCreated();
       onClose();
@@ -118,6 +122,13 @@ function CreateQuoteModal({
             <input
               type="text" value={name} onChange={(e) => setName(e.target.value)}
               className="border rounded px-2 py-1 w-full" spellCheck={false}
+            />
+          </div>
+          <div>
+            <label className="block mb-1 text-slate-600">Quote Number</label>
+            <input
+              type="text" value={quoteNumber} onChange={(e) => setQuoteNumber(e.target.value)}
+              className="border rounded px-2 py-1 w-full" spellCheck={false} placeholder="e.g. Q-2026-001"
             />
           </div>
           <div>
@@ -143,6 +154,11 @@ function CreateQuoteModal({
           <div>
             <label className="block mb-1 text-slate-600">PM Designee</label>
             <input type="text" value={pmDesignee} onChange={(e) => setPmDesignee(e.target.value)}
+              className="border rounded px-2 py-1 w-full" />
+          </div>
+          <div>
+            <label className="block mb-1 text-slate-600">Description</label>
+            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)}
               className="border rounded px-2 py-1 w-full" />
           </div>
         </div>

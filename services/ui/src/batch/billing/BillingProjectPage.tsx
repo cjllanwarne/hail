@@ -326,6 +326,12 @@ export function BillingProjectPage({ basePath, bpName, billingRole }: Props) {
               </td>
             </tr>
             <EditableRow
+              label="Description"
+              value={bp.description ?? ''}
+              canEdit={bp.status === 'open'}
+              onSave={(val) => patch({ description: val || null })}
+            />
+            <EditableRow
               label="Limit"
               value={bp.limit !== null ? String(bp.limit) : ''}
               displayValue={fmtDollars(bp.limit)}
