@@ -4,12 +4,14 @@ import { fetchJson, apiCall } from './api';
 import { fmtDollars } from './fmt';
 import { ErrorBanner, QuoteCompactBudgetBar } from './shared';
 
-type SortKey = 'name' | 'cost_object' | 'spent' | 'allocated' | 'limit' | 'usage';
+type SortKey = 'name' | 'cost_object' | 'pi_name' | 'pm_designee' | 'spent' | 'allocated' | 'limit' | 'usage';
 type SortDir = 'asc' | 'desc';
 
 const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   name: 'asc',
   cost_object: 'asc',
+  pi_name: 'asc',
+  pm_designee: 'asc',
   spent: 'desc',
   allocated: 'desc',
   limit: 'desc',
@@ -30,6 +32,8 @@ function sortQuotes(quotes: Quote[], key: SortKey, dir: SortDir): Quote[] {
     switch (key) {
       case 'name':      cmp = a.name.localeCompare(b.name); break;
       case 'cost_object': cmp = a.cost_object.localeCompare(b.cost_object); break;
+      case 'pi_name':   cmp = (a.pi_name ?? '').localeCompare(b.pi_name ?? ''); break;
+      case 'pm_designee': cmp = (a.pm_designee ?? '').localeCompare(b.pm_designee ?? ''); break;
       case 'spent':     cmp = totalSpent(a) - totalSpent(b); break;
       case 'allocated': cmp = totalAllocated(a) - totalAllocated(b); break;
       case 'limit':
@@ -246,6 +250,8 @@ export function QuotesPage({ basePath, canCreate }: Props) {
               <tr>
                 <SortTh label="Name"        sortKey="name"        current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Cost Object" sortKey="cost_object" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="PI Name"     sortKey="pi_name"     current={sortKey} dir={sortDir} onSort={handleSort} />
+                <SortTh label="PM Designee" sortKey="pm_designee" current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Authorized"  sortKey="limit"       current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Allocated"   sortKey="allocated"   current={sortKey} dir={sortDir} onSort={handleSort} />
                 <SortTh label="Spent"       sortKey="spent"       current={sortKey} dir={sortDir} onSort={handleSort} />
@@ -264,6 +270,8 @@ export function QuotesPage({ basePath, canCreate }: Props) {
                       </a>
                     </td>
                     <td className="p-3 text-slate-700">{q.cost_object}</td>
+                    <td className="p-3 text-slate-700">{q.pi_name ?? '—'}</td>
+                    <td className="p-3 text-slate-700">{q.pm_designee ?? '—'}</td>
                     <td className="p-3 text-slate-700">{fmtDollars(q.authorized_amount)}</td>
                     <td className="p-3 text-slate-700">{fmtDollars(allocated)}</td>
                     <td className="p-3 text-slate-700">{fmtDollars(spent)}</td>
