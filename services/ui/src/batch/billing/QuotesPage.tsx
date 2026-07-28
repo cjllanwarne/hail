@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Quote, BillingProject } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtDollars } from './fmt';
-import { ErrorBanner, QuoteCompactBudgetBar, CompactBudgetBar } from './shared';
+import { ErrorBanner, QuoteCompactBudgetBar } from './shared';
 
 type SortKey = 'name' | 'cost_object' | 'pi_name' | 'pm_designee' | 'spent' | 'allocated' | 'limit' | 'usage';
 type SortDir = 'asc' | 'desc';
@@ -214,10 +214,7 @@ function BpsByQuote({ basePath, bps }: { basePath: string; bps: BillingProject[]
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="text-left p-3 font-medium">Name</th>
-                  <th className="text-left p-3 font-medium">Spent</th>
-                  <th className="text-left p-3 font-medium">Limit</th>
-                  <th className="text-left p-3 font-medium">Usage</th>
+                  <th className="text-left p-3 font-medium">Billing Project</th>
                 </tr>
               </thead>
               <tbody>
@@ -227,11 +224,6 @@ function BpsByQuote({ basePath, bps }: { basePath: string; bps: BillingProject[]
                       <a href={`${basePath}/billing_projects/${bp.billing_project}`} className="text-blue-600 hover:underline">
                         {bp.billing_project}
                       </a>
-                    </td>
-                    <td className="p-3 text-slate-700">{fmtDollars(bp.accrued_cost)}</td>
-                    <td className="p-3 text-slate-700">{fmtDollars(bp.limit)}</td>
-                    <td className="p-3">
-                      <CompactBudgetBar accrued={bp.accrued_cost} limit={bp.limit} alert={bp.low_budget_alert} />
                     </td>
                   </tr>
                 ))}
@@ -279,7 +271,8 @@ export function QuotesPage({ basePath, canCreate }: Props) {
 
   useEffect(() => { void fetchData(); }, [fetchData]);
 
-  const hasBps = bps !== null && bps.length > 0;
+  const managedQuoteNames = new Set((quotes ?? []).map((q) => q.name));
+  const unmanagedBps = (bps ?? []).filter((bp) => !managedQuoteNames.has(bp.quote_name));
 
   return (
     <div>
@@ -353,10 +346,10 @@ export function QuotesPage({ basePath, canCreate }: Props) {
             <p className="text-slate-500 text-sm mb-8">You are not a manager of any quotes.</p>
           )}
 
-          {hasBps && (
+          {unmanagedBps.length > 0 && (
             <>
               <h2 className="text-lg font-light text-slate-700 mb-3">Billing Projects by Quote</h2>
-              <BpsByQuote basePath={basePath} bps={bps} />
+              <BpsByQuote basePath={basePath} bps={unmanagedBps} />
             </>
           )}
         </>
