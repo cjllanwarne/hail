@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Quote, BillingProject } from './api';
+import type { Quote } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtDollars } from './fmt';
 import { ErrorBanner, QuoteCompactBudgetBar } from './shared';
@@ -187,58 +187,9 @@ function CreateQuoteModal({
   );
 }
 
-function BpsByQuote({ basePath, bps }: { basePath: string; bps: BillingProject[] }) {
-  const byQuote = new Map<string, BillingProject[]>();
-  for (const bp of bps) {
-    const group = byQuote.get(bp.quote_name) ?? [];
-    group.push(bp);
-    byQuote.set(bp.quote_name, group);
-  }
-  const groups = [...byQuote.entries()].sort(([a], [b]) => a.localeCompare(b));
-
-  return (
-    <>
-      {groups.map(([quoteName, groupBps]) => {
-        const canViewQuote = groupBps[0].can_view_quote;
-        return (
-          <section key={quoteName} className="border rounded mb-4">
-            <div className="bg-slate-100 px-4 py-2 font-medium text-sm uppercase tracking-wide text-slate-600 rounded-t">
-              {canViewQuote ? (
-                <a href={`${basePath}/billing/quotes/${encodeURIComponent(quoteName)}`} className="text-blue-700 hover:underline">
-                  {quoteName}
-                </a>
-              ) : (
-                quoteName
-              )}
-            </div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="text-left p-3 font-medium">Billing Project</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupBps.sort((a, b) => a.billing_project.localeCompare(b.billing_project)).map((bp) => (
-                  <tr key={bp.billing_project} className="border-t hover:bg-slate-50">
-                    <td className="p-3">
-                      <a href={`${basePath}/billing_projects/${bp.billing_project}`} className="text-blue-600 hover:underline">
-                        {bp.billing_project}
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        );
-      })}
-    </>
-  );
-}
 
 export function QuotesPage({ basePath, canCreate }: Props) {
   const [quotes, setQuotes] = useState<Quote[] | null>(null);
-  const [bps, setBps] = useState<BillingProject[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -252,15 +203,11 @@ export function QuotesPage({ basePath, canCreate }: Props) {
 
   const fetchData = useCallback(async () => {
     try {
-      const [list, bpList] = await Promise.all([
-        fetchJson<Quote[]>(`${basePath}/api/v1alpha/quotes`),
-        fetchJson<BillingProject[]>(`${basePath}/api/v1alpha/billing_projects`),
-      ]);
+      const list = await fetchJson<Quote[]>(`${basePath}/api/v1alpha/quotes`);
       const details = await Promise.all(
         list.map((q) => fetchJson<Quote>(`${basePath}/api/v1alpha/quotes/${encodeURIComponent(q.name)}`))
       );
       setQuotes(details);
-      setBps(bpList);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -270,9 +217,6 @@ export function QuotesPage({ basePath, canCreate }: Props) {
   }, [basePath]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
-
-  const managedQuoteNames = new Set((quotes ?? []).map((q) => q.name));
-  const unmanagedBps = (bps ?? []).filter((bp) => !managedQuoteNames.has(bp.quote_name));
 
   return (
     <div>
@@ -346,12 +290,6 @@ export function QuotesPage({ basePath, canCreate }: Props) {
             <p className="text-slate-500 text-sm mb-8">You are not a manager of any quotes.</p>
           )}
 
-          {unmanagedBps.length > 0 && (
-            <>
-              <h2 className="text-lg font-light text-slate-700 mb-3">Billing Projects by Quote</h2>
-              <BpsByQuote basePath={basePath} bps={unmanagedBps} />
-            </>
-          )}
         </>
       )}
 
