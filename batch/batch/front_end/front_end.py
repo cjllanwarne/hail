@@ -2977,30 +2977,8 @@ async def ui_get_job_log(request: web.Request, _, batch_id: int) -> web.StreamRe
 @web_security_headers
 @auth.authenticated_users_only()
 @catch_ui_error_in_dev
-async def ui_get_billing_limits(request, userdata):
-    if request.cookies.get('hail_react_ui') == '1':
-        raise web.HTTPFound(deploy_config.external_url('batch', '/billing_projects'))
-
-    app = request.app
-    db: Database = app['db']
-
-    if not userdata['system_permissions'].get(SystemPermission.READ_ALL_BILLING_PROJECTS, False):
-        user = userdata['username']
-        quote_manager_user = user
-    else:
-        user = None
-        quote_manager_user = None
-
-    billing_projects = await query_billing_projects_with_cost(db, user=user, quote_manager_user=quote_manager_user)
-
-    open_billing_projects = [bp for bp in billing_projects if bp['status'] == 'open']
-    closed_billing_projects = [bp for bp in billing_projects if bp['status'] == 'closed']
-
-    page_context = {
-        'open_billing_projects': open_billing_projects,
-        'closed_billing_projects': closed_billing_projects,
-    }
-    return await render_template('batch', request, userdata, 'billing_limits.html', page_context)
+async def ui_get_billing_limits(request, _) -> NoReturn:
+    raise web.HTTPFound(deploy_config.external_url('batch', '/billing_projects'))
 
 
 async def _edit_billing_limit(db, billing_project, limit):
@@ -3045,23 +3023,6 @@ async def post_edit_billing_limits(request: web.Request, _: UserData) -> web.Res
     return json_response({'billing_project': billing_project, 'limit': limit})
 
 
-@routes.post('/billing_limits/{billing_project}/edit')
-@web_security_headers
-@auth.authenticated_users_with_permission(SystemPermission.UPDATE_ALL_BILLING_PROJECTS, redirect=False)
-@catch_ui_error_in_dev
-async def post_edit_billing_limits_ui(request: web.Request, _) -> NoReturn:
-    db: Database = request.app['db']
-    billing_project = request.match_info['billing_project']
-    post = await request.post()
-    limit = post['limit']
-    session = await aiohttp_session.get_session(request)
-    try:
-        await _handle_ui_error(session, _edit_billing_limit, db, billing_project, limit)
-        set_message(session, f'Modified limit {limit} for billing project {billing_project}.', 'info')  # type: ignore
-    finally:
-        raise web.HTTPFound(deploy_config.external_url('batch', '/billing_limits'))  # pylint: disable=lost-exception
-
-
 async def _query_billing(
     request: web.Request, user: Optional[str] = None, quote_manager_user: Optional[str] = None
 ) -> Tuple[list, str, Optional[str]]:
@@ -3101,131 +3062,16 @@ async def _query_billing(
     return (billing, start_query, end_query)
 
 
-async def _query_billing_by_quote(
-    db: Database,
-    start_str: str,
-    end_str: Optional[str],
-    username: Optional[str],
-) -> list:
-    date_format = '%m/%d/%Y'
-    start = datetime.datetime.strptime(start_str, date_format)
-    end = datetime.datetime.strptime(end_str, date_format) if end_str else None
-
-    where_conditions = [
-        "billing_projects.`status` != 'deleted'",
-        "billing_date >= %s",
-        "quotes.id IS NOT NULL",
-    ]
-    where_args: List[Any] = [start]
-
-    if end is not None:
-        where_conditions.append("billing_date <= %s")
-        where_args.append(end)
-
-    if username is not None:
-        where_conditions.append("quotes.id IN (SELECT quote_id FROM quote_managers WHERE `user` = %s)")
-        where_args.append(username)
-
-    sql = f"""
-SELECT
-  quote_name,
-  COALESCE(SUM(`usage` * rate), 0) AS cost
-FROM (
-  SELECT resource_id, quotes.name AS quote_name,
-    CAST(COALESCE(SUM(`usage`), 0) AS SIGNED) AS `usage`
-  FROM aggregated_billing_project_user_resources_by_date_v3
-  LEFT JOIN billing_projects ON billing_projects.name = aggregated_billing_project_user_resources_by_date_v3.billing_project
-  LEFT JOIN quotes ON quotes.id = billing_projects.quote_id
-  WHERE {' AND '.join(where_conditions)}
-  GROUP BY resource_id, quote_name
-) AS t
-LEFT JOIN resources ON resources.resource_id = t.resource_id
-GROUP BY quote_name
-ORDER BY quote_name;
-"""
-
-    return [record async for record in db.select_and_fetchall(sql, where_args)]
-
-
 @routes.get('/billing')
 @web_security_headers
 @auth.authenticated_users_only()
 @catch_ui_error_in_dev
 async def ui_get_billing(request, userdata):
-    if request.cookies.get('hail_react_ui') == '1':
-        date_format = '%m/%d/%Y'
-        default_start = datetime.datetime.now().replace(day=1).strftime(date_format)
-        start = request.query.get('start', default_start)
-        end = request.query.get('end', '')
-        return await render_template('batch', request, userdata, 'billing_react.html', {'start': start, 'end': end})
-
-    is_global_bm = userdata['system_permissions'].get(SystemPermission.READ_ALL_BILLING_PROJECTS, False)
-    current_user = userdata['username']
-    db: Database = request.app['db']
-
-    user = None if is_global_bm else current_user
-    quote_manager_user = None if is_global_bm else current_user
-    billing, start, end = await _query_billing(request, user=user, quote_manager_user=quote_manager_user)
-
-    billing_by_user: Dict[str, int] = {}
-    billing_by_project: Dict[str, int] = {}
-    for record in billing:
-        billing_project = record['billing_project']
-        record_user = record['user']
-        cost = record['cost']
-        billing_by_user[record_user] = billing_by_user.get(record_user, 0) + cost
-        billing_by_project[billing_project] = billing_by_project.get(billing_project, 0) + cost
-
-    billing_by_project_list = [
-        {'billing_project': billing_project, 'cost': cost_str(cost) or '$0'}
-        for billing_project, cost in billing_by_project.items()
-    ]
-    billing_by_project_list.sort(key=lambda record: record['billing_project'])
-
-    billing_by_user_list = [{'user': u, 'cost': cost_str(cost) or '$0'} for u, cost in billing_by_user.items()]
-    billing_by_user_list.sort(key=lambda record: record['user'])
-
-    billing_by_project_user = [
-        {'billing_project': record['billing_project'], 'user': record['user'], 'cost': cost_str(record['cost']) or '$0'}
-        for record in billing
-    ]
-    billing_by_project_user.sort(key=lambda record: (record['billing_project'], record['user']))
-
-    total_cost = cost_str(sum(record['cost'] for record in billing))
-
-    # "By Quote" tab: visible to global-bm (always) or quote managers/owners
-    if is_global_bm:
-        show_quote_tab = True
-        quote_costs: Dict[str, int] = {}
-        for record in billing:
-            qname = record.get('quote_name')
-            if qname:
-                quote_costs[qname] = quote_costs.get(qname, 0) + record['cost']
-        billing_by_quote = [
-            {'quote_name': qn, 'cost': cost_str(cost) or '$0'} for qn, cost in sorted(quote_costs.items())
-        ]
-    else:
-        managed_quotes = await billing_dao.list_quotes_for_user(db, current_user, False)
-        show_quote_tab = bool(managed_quotes)
-        if show_quote_tab:
-            rows = await _query_billing_by_quote(db, start, end, current_user)
-            billing_by_quote = [{'quote_name': r['quote_name'], 'cost': cost_str(r['cost']) or '$0'} for r in rows]
-        else:
-            billing_by_quote = []
-
-    page_context = {
-        'billing_by_project': billing_by_project_list,
-        'billing_by_user': billing_by_user_list,
-        'billing_by_project_user': billing_by_project_user,
-        'billing_by_quote': billing_by_quote,
-        'show_quote_tab': show_quote_tab,
-        'start': start,
-        'end': end,
-        'today': datetime.datetime.now().strftime('%m/%d/%Y'),
-        'user': current_user,
-        'total_cost': total_cost,
-    }
-    return await render_template('batch', request, userdata, 'billing.html', page_context)
+    date_format = '%m/%d/%Y'
+    default_start = datetime.datetime.now().replace(day=1).strftime(date_format)
+    start = request.query.get('start', default_start)
+    end = request.query.get('end', '')
+    return await render_template('batch', request, userdata, 'billing_react.html', {'start': start, 'end': end})
 
 
 @routes.get('/api/v1alpha/billing')
@@ -3292,20 +3138,7 @@ async def api_get_billing_breakdown(request: web.Request, userdata) -> web.Respo
 @auth.authenticated_users_only()
 @catch_ui_error_in_dev
 async def ui_get_billing_projects(request, userdata):
-    db: Database = request.app['db']
-    is_global_bm = userdata['system_permissions'].get(SystemPermission.UPDATE_ALL_BILLING_PROJECTS, False)
-
-    if request.cookies.get('hail_react_ui') == '1':
-        return await render_template('batch', request, userdata, 'billing_projects_react.html', {})
-
-    user = None if is_global_bm else userdata['username']
-    quote_manager_user = None if is_global_bm else userdata['username']
-    billing_projects = await query_billing_projects_with_cost(db, user=user, quote_manager_user=quote_manager_user)
-    page_context = {
-        'billing_projects': [{**p, 'size': len(p['users'])} for p in billing_projects if p['status'] == 'open'],
-        'closed_projects': [p for p in billing_projects if p['status'] == 'closed'],
-    }
-    return await render_template('batch', request, userdata, 'billing_projects.html', page_context)
+    return await render_template('batch', request, userdata, 'billing_projects_react.html', {})
 
 
 @routes.get('/api/v1alpha/billing_projects')
@@ -3918,20 +3751,6 @@ SELECT frozen FROM globals;
 async def index(request: web.Request, _) -> NoReturn:
     location = request.app.router['batches'].url_for()
     raise web.HTTPFound(location=location)
-
-
-@routes.get('/set_ui_style')
-@web_security_headers
-@auth.authenticated_users_only()
-async def set_ui_style(request, _) -> web.Response:
-    style = request.query.get('style', 'new')
-    redirect = request.query.get('redirect', '/billing_projects')
-    response = web.HTTPFound(deploy_config.external_url('batch', redirect))
-    if style == 'new':
-        response.set_cookie('hail_react_ui', '1', path='/', samesite='Lax', max_age=108000)
-    else:
-        response.del_cookie('hail_react_ui', path='/')
-    raise response
 
 
 @routes.get('/swagger')
