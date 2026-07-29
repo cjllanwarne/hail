@@ -25,6 +25,9 @@
       <a href="{{ batch_base_url }}" class="header-dropdown-link">Batch</a>
       <div class="header-dropdown-menu">
         <div class="batch-caret header-dropdown-menu-caret"></div>
+        {% if userdata and userdata['username'] %}
+        <a class="header-dropdown-menu-link" href="{{ batch_base_url }}/batches">Batches</a>
+        {% endif %}
         {% if userdata and userdata['system_permissions']['read_deployed_system_state'] %}
         <a class="header-dropdown-menu-link" href="{{ batch_driver_base_url }}">Driver</a>
         {% endif %}
