@@ -51,12 +51,6 @@ export function BillingProjectsPage({ basePath, isGlobalBm, canCreateBp, canCrea
               New Billing Project
             </button>
           )}
-          <a
-            href={`${basePath}/set_ui_style?style=classic&redirect=/billing_projects`}
-            className="text-xs text-slate-500 hover:text-slate-700"
-          >
-            Back to classic layout
-          </a>
         </div>
       </div>
 

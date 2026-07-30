@@ -233,12 +233,6 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
       <div className="lg:basis-1/3">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-light">Billing</h1>
-          <a
-            href={`${basePath}/set_ui_style?style=classic&redirect=/billing`}
-            className="text-xs text-slate-500 hover:text-slate-700"
-          >
-            Back to classic layout
-          </a>
         </div>
 
         <form onSubmit={(e) => void handleSubmit(e)}>

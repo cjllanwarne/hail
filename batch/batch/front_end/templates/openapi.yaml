@@ -2130,32 +2130,6 @@ paths:
             application/json:
               schema:
                 type: object
-  '/set_ui_style':
-    get:
-      summary: "Set UI style cookie (UI)"
-      description: "Set or clear the hail_react_ui cookie and redirect. style=new sets the cookie; style=classic clears it."
-      operationId: setUiStyle
-      tags:
-        - UI Support
-      parameters:
-        - name: style
-          in: query
-          description: "'new' to enable new style, 'classic' to revert"
-          required: false
-          schema:
-            type: string
-            enum: [new, classic]
-            default: new
-        - name: redirect
-          in: query
-          description: "Path to redirect to after setting the cookie"
-          required: false
-          schema:
-            type: string
-            default: /billing_projects
-      responses:
-        '302':
-          description: "Redirect to the target page with the cookie set."
   '/billing_projects/{billing_project}':
     get:
       summary: "Billing project detail page (UI)"
