@@ -232,7 +232,7 @@ export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defau
         <span className="font-medium text-sm uppercase tracking-wide text-slate-600">{label} ({bps.length})</span>
       </button>
       {open && (bps.length > 0 ? (
-        <div className="overflow-y-auto" style={{ maxHeight: '28rem' }}>
+        <div>
           <table className="w-full text-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
@@ -376,7 +376,7 @@ export function QuotesTable({ label, quotes, basePath, emptyMessage, defaultOpen
         <span className="font-medium text-sm uppercase tracking-wide text-slate-600">{label} ({quotes.length})</span>
       </button>
       {open && (quotes.length > 0 ? (
-        <div className="overflow-y-auto" style={{ maxHeight: '28rem' }}>
+        <div>
           <table className="w-full text-sm">
             <thead className="bg-slate-50 sticky top-0 z-10">
               <tr>
