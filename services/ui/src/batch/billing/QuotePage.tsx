@@ -32,6 +32,7 @@ export function QuotePage({ basePath, quoteName }: Props) {
   const [mgrError, setMgrError] = useState<string | null>(null);
   const [showCreateBp, setShowCreateBp] = useState(false);
   const [showCloseQuote, setShowCloseQuote] = useState(false);
+  const [showReopenQuote, setShowReopenQuote] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -251,7 +252,7 @@ export function QuotePage({ basePath, quoteName }: Props) {
       </section>
 
       {/* Actions */}
-      {(canCreateBp || (canCloseQuote && quote.state === 'open')) && (
+      {(canCreateBp || canCloseQuote) && (
         <section className="border rounded mb-6">
           <SectionHeader label="Actions" />
           <div className="p-4 flex flex-wrap gap-2">
@@ -269,6 +270,14 @@ export function QuotePage({ basePath, quoteName }: Props) {
                 className="bg-red-600 text-white px-3 py-1.5 rounded text-sm hover:bg-red-700"
               >
                 Close quote
+              </button>
+            )}
+            {canCloseQuote && quote.state === 'closed' && (
+              <button
+                onClick={() => setShowReopenQuote(true)}
+                className="bg-green-600 text-white px-3 py-1.5 rounded text-sm hover:bg-green-700"
+              >
+                Reopen quote
               </button>
             )}
           </div>
@@ -311,6 +320,20 @@ export function QuotePage({ basePath, quoteName }: Props) {
             await fetchData();
           }}
           onClose={() => setShowCloseQuote(false)}
+        />
+      )}
+
+      {showReopenQuote && (
+        <ConfirmModal
+          title={`Reopen "${quoteName}"?`}
+          message="Reopening will allow new billing projects to be created under this quote."
+          confirmLabel="Reopen quote"
+          onConfirm={async (comment) => {
+            await apiCall('POST', `${basePath}/api/v1alpha/quotes/${encodeURIComponent(quoteName)}/reopen`, { comment: comment || undefined });
+            setShowReopenQuote(false);
+            await fetchData();
+          }}
+          onClose={() => setShowReopenQuote(false)}
         />
       )}
     </div>

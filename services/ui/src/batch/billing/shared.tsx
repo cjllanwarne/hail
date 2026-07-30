@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import type { BillingEvent, BillingProject, Quote } from './api';
 import { fetchJson, apiCall } from './api';
 import { fmtCost, fmtDollars } from './fmt';
@@ -8,12 +8,11 @@ import { fmtCost, fmtDollars } from './fmt';
 interface BudgetBarProps {
   accrued: number;
   limit: number | null;
-  alert: number | null;
 }
 
-export function BudgetBar({ accrued, limit, alert }: BudgetBarProps) {
+export function BudgetBar({ accrued, limit }: BudgetBarProps) {
   const isOver = limit !== null && accrued >= limit;
-  const isLow = !isOver && alert !== null && accrued >= alert;
+  const isLow = !isOver && limit !== null && accrued >= limit * 0.9;
 
   if (limit === null) {
     return (
@@ -37,7 +36,6 @@ export function BudgetBar({ accrued, limit, alert }: BudgetBarProps) {
           <YAxis type="category" hide />
           <Bar dataKey="accrued" stackId="a" fill={isOver ? '#ef4444' : isLow ? '#fbbf24' : '#38bdf8'} radius={[3, 0, 0, 3]} isAnimationActive={false} />
           <Bar dataKey="remaining" stackId="a" fill="#e2e8f0" radius={[0, 3, 3, 0]} isAnimationActive={false} />
-          {alert !== null && <ReferenceLine x={alert} stroke="#f59e0b" strokeWidth={2} />}
         </BarChart>
       </ResponsiveContainer>
       <div className={`text-xs mt-1 ${isLow ? 'text-amber-700 font-medium' : 'text-slate-500'}`}>
@@ -105,7 +103,7 @@ export function QuoteCompactBudgetBar({ spent, allocated, authorized }: {
   );
 }
 
-export function CompactBudgetBar({ accrued, limit, alert }: BudgetBarProps) {
+export function CompactBudgetBar({ accrued, limit }: BudgetBarProps) {
   if (limit === null) {
     return (
       <div className="relative min-w-[120px] h-3 bg-slate-200 rounded overflow-hidden">
@@ -115,25 +113,21 @@ export function CompactBudgetBar({ accrued, limit, alert }: BudgetBarProps) {
   }
 
   const isOver = accrued >= limit;
-  const isLow = !isOver && alert !== null && accrued >= alert;
+  const isLow = !isOver && accrued >= limit * 0.9;
   const pct = Math.min((accrued / limit) * 100, 100);
-  const alertPct = alert !== null ? Math.min((alert / limit) * 100, 100) : null;
 
   return (
-    <div className="relative min-w-[120px] h-3 bg-slate-200 rounded overflow-visible">
+    <div className="relative min-w-[120px] h-3 bg-slate-200 rounded overflow-hidden">
       <div
         className={`h-full rounded ${isOver ? 'bg-red-500' : isLow ? 'bg-amber-400' : 'bg-sky-400'}`}
         style={{ width: `${pct}%` }}
       />
-      {alertPct !== null && (
-        <div className="absolute top-0 h-full w-px bg-amber-500" style={{ left: `${alertPct}%` }} />
-      )}
     </div>
   );
 }
 
 function isLowBudget(bp: BillingProject): boolean {
-  return bp.low_budget_alert !== null && bp.accrued_cost >= bp.low_budget_alert;
+  return bp.limit !== null && bp.accrued_cost >= bp.limit * 0.9;
 }
 
 type BPSortKey = 'name' | 'quote' | 'spent' | 'limit' | 'usage';
@@ -273,7 +267,7 @@ export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defau
                     <td className="p-3 text-slate-700">{fmtDollars(bp.accrued_cost)}</td>
                     <td className="p-3 text-slate-700">{fmtDollars(bp.limit)}</td>
                     <td className="p-3">
-                      <CompactBudgetBar accrued={bp.accrued_cost} limit={bp.limit} alert={bp.low_budget_alert} />
+                      <CompactBudgetBar accrued={bp.accrued_cost} limit={bp.limit} />
                     </td>
                   </tr>
                 );

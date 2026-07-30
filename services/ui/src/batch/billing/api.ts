@@ -6,7 +6,6 @@ export interface BillingProject {
   quote_id: number;
   quote_name: string;
   can_view_quote: boolean;
-  low_budget_alert: number | null;
   remaining: number | null;
   accrued_cost: number;
   description: string | null;

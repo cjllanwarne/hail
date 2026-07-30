@@ -108,109 +108,6 @@ const BP_EVENT_COLUMNS = [
   { key: 'comment' as const, label: 'Comment', render: (v: unknown) => <span className="text-slate-500 italic">{String(v ?? '')}</span> },
 ];
 
-function AlertThresholdRow({ alert, limit, canEdit, onSave }: {
-  alert: number | null;
-  limit: number | null;
-  canEdit: boolean;
-  onSave: (val: number | null) => Promise<void>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [dollars, setDollars] = useState('');
-  const [pct, setPct] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const displayValue = alert !== null && limit !== null
-    ? `${fmtDollars(alert)} (${Math.round((alert / limit) * 100)}%)`
-    : fmtDollars(alert);
-
-  const startEditing = () => {
-    setDollars(alert !== null ? String(alert) : '');
-    setPct(alert !== null && limit !== null ? String(Math.round((alert / limit) * 100)) : '');
-    setError(null);
-    setEditing(true);
-  };
-
-  const handleDollarChange = (v: string) => {
-    setDollars(v);
-    if (limit !== null && v !== '') setPct(String(Math.round((parseFloat(v) / limit) * 100)));
-  };
-
-  const handlePctChange = (v: string) => {
-    setPct(v);
-    if (limit !== null && v !== '') setDollars(((parseFloat(v) / 100) * limit).toFixed(2));
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(dollars === '' ? null : parseFloat(dollars));
-      setEditing(false);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <tr className="border-b border-slate-100">
-      <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Alert threshold</td>
-      <td className="py-2 align-middle">
-        {editing ? (
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <span className="text-sm text-slate-500">$</span>
-                <input
-                  type="number" min="0" step="0.01"
-                  className="border rounded px-2 py-1 w-28 text-sm"
-                  value={dollars}
-                  placeholder="amount"
-                  onChange={(e) => handleDollarChange(e.target.value)}
-                  autoFocus
-                />
-              </div>
-              <span className="text-sm text-slate-400">or</span>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number" min="0" max="100" step="1"
-                  className="border rounded px-2 py-1 w-16 text-sm"
-                  value={pct}
-                  placeholder="0"
-                  onChange={(e) => handlePctChange(e.target.value)}
-                />
-                <span className="text-sm text-slate-500">%</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => void handleSave()} disabled={saving}
-                className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 disabled:opacity-50">
-                Save
-              </button>
-              <button onClick={() => { setEditing(false); setError(null); }}
-                className="text-slate-500 hover:text-slate-700 text-sm">
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <span>{displayValue}</span>
-        )}
-        {error && <div className="text-red-600 text-xs mt-1">{error}</div>}
-      </td>
-      <td className="py-2 pr-4 text-right align-middle w-10">
-        {canEdit && !editing && (
-          <button onClick={startEditing} className="hover:bg-slate-200 rounded p-0.5 text-slate-400 hover:text-slate-600">
-            <span className="material-symbols-outlined text-base">edit</span>
-          </button>
-        )}
-      </td>
-    </tr>
-  );
-}
-
 export function BillingProjectPage({ basePath, bpName }: Props) {
   const [bp, setBp] = useState<BillingProject | null>(null);
   const [events, setEvents] = useState<BillingEvent[]>([]);
@@ -289,7 +186,6 @@ export function BillingProjectPage({ basePath, bpName }: Props) {
 
   const billingRole = bp?.billing_role ?? null;
   const canEditLimit = can(billingRole, 'edit_bp_limit');
-  const canEditAlert = can(billingRole, 'edit_bp_alert');
   const canManageMembers = can(billingRole, 'manage_bp_members');
   const canCloseReopen = can(billingRole, 'close_reopen_bp');
   const canChangeQuote = can(billingRole, 'change_bp_quote');
@@ -356,15 +252,9 @@ export function BillingProjectPage({ basePath, bpName }: Props) {
             <tr className="border-b border-slate-100">
               <td className="py-2 pl-4 pr-8 text-slate-500 w-40 align-middle">Spent</td>
               <td className="py-2 pr-4 align-middle" colSpan={2}>
-                <BudgetBar accrued={bp.accrued_cost} limit={bp.limit} alert={bp.low_budget_alert} />
+                <BudgetBar accrued={bp.accrued_cost} limit={bp.limit} />
               </td>
             </tr>
-            <AlertThresholdRow
-              alert={bp.low_budget_alert}
-              limit={bp.limit}
-              canEdit={canEditAlert && bp.status === 'open'}
-              onSave={(val) => patch({ low_budget_alert: val })}
-            />
           </tbody>
         </table>
       </section>
