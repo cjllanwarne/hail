@@ -282,6 +282,147 @@ export function BillingProjectsTable({ label, bps, basePath, emptyMessage, defau
   );
 }
 
+type QuoteSortKey = 'name' | 'cost_object' | 'pi_name' | 'pm_designee' | 'spent' | 'allocated' | 'limit' | 'usage';
+
+const QUOTE_SORT_DEFAULT_DIR: Record<QuoteSortKey, SortDir> = {
+  name: 'asc',
+  cost_object: 'asc',
+  pi_name: 'asc',
+  pm_designee: 'asc',
+  spent: 'desc',
+  allocated: 'desc',
+  limit: 'desc',
+  usage: 'desc',
+};
+
+function totalSpent(q: Quote): number {
+  return (q.billing_projects ?? []).reduce((s, bp) => s + bp.accrued_cost, 0);
+}
+
+function totalAllocated(q: Quote): number {
+  return (q.billing_projects ?? []).reduce((s, bp) => s + (bp.limit ?? 0), 0);
+}
+
+function sortQuotes(quotes: Quote[], key: QuoteSortKey, dir: SortDir): Quote[] {
+  return [...quotes].sort((a, b) => {
+    let cmp = 0;
+    switch (key) {
+      case 'name':        cmp = a.name.localeCompare(b.name); break;
+      case 'cost_object': cmp = a.cost_object.localeCompare(b.cost_object); break;
+      case 'pi_name':     cmp = (a.pi_name ?? '').localeCompare(b.pi_name ?? ''); break;
+      case 'pm_designee': cmp = (a.pm_designee ?? '').localeCompare(b.pm_designee ?? ''); break;
+      case 'spent':       cmp = totalSpent(a) - totalSpent(b); break;
+      case 'allocated':   cmp = totalAllocated(a) - totalAllocated(b); break;
+      case 'limit':
+        if (a.authorized_amount === null && b.authorized_amount === null) cmp = 0;
+        else if (a.authorized_amount === null) cmp = 1;
+        else if (b.authorized_amount === null) cmp = -1;
+        else cmp = a.authorized_amount - b.authorized_amount;
+        break;
+      case 'usage': {
+        const pA = a.authorized_amount === null ? 0 : totalAllocated(a) / a.authorized_amount;
+        const pB = b.authorized_amount === null ? 0 : totalAllocated(b) / b.authorized_amount;
+        cmp = pA - pB;
+        break;
+      }
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function QuoteSortTh({ label, sortKey, current, dir, onSort }: {
+  label: string; sortKey: QuoteSortKey; current: QuoteSortKey; dir: SortDir; onSort: (k: QuoteSortKey) => void;
+}) {
+  const active = sortKey === current;
+  return (
+    <th className="text-left p-3 font-medium cursor-pointer select-none hover:bg-slate-100" onClick={() => onSort(sortKey)}>
+      <div className="flex items-center gap-1">
+        {label}
+        <span className="material-symbols-outlined text-sm text-slate-400">
+          {active ? (dir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+        </span>
+      </div>
+    </th>
+  );
+}
+
+export function QuotesTable({ label, quotes, basePath, emptyMessage, defaultOpen = true }: {
+  label: string;
+  quotes: Quote[];
+  basePath: string;
+  emptyMessage: string;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [sortKey, setSortKey] = useState<QuoteSortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const handleSort = (key: QuoteSortKey) => {
+    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir(QUOTE_SORT_DEFAULT_DIR[key]); }
+  };
+
+  const sorted = sortQuotes(quotes, sortKey, sortDir);
+
+  return (
+    <section className="border rounded mb-6">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-t text-left hover:bg-slate-200"
+      >
+        <span className="material-symbols-outlined text-slate-500 text-base">
+          {open ? 'expand_more' : 'chevron_right'}
+        </span>
+        <span className="font-medium text-sm uppercase tracking-wide text-slate-600">{label} ({quotes.length})</span>
+      </button>
+      {open && (quotes.length > 0 ? (
+        <div className="overflow-y-auto" style={{ maxHeight: '28rem' }}>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 sticky top-0 z-10">
+              <tr>
+                <QuoteSortTh label="Name"        sortKey="name"        current={sortKey} dir={sortDir} onSort={handleSort} />
+                <QuoteSortTh label="Cost Object" sortKey="cost_object" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <QuoteSortTh label="PI Name"     sortKey="pi_name"     current={sortKey} dir={sortDir} onSort={handleSort} />
+                <QuoteSortTh label="PM Designee" sortKey="pm_designee" current={sortKey} dir={sortDir} onSort={handleSort} />
+                <QuoteSortTh label="Authorized"  sortKey="limit"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                <QuoteSortTh label="Allocated"   sortKey="allocated"   current={sortKey} dir={sortDir} onSort={handleSort} />
+                <QuoteSortTh label="Spent"       sortKey="spent"       current={sortKey} dir={sortDir} onSort={handleSort} />
+                <QuoteSortTh label="Usage"       sortKey="usage"       current={sortKey} dir={sortDir} onSort={handleSort} />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((q) => {
+                const spent = totalSpent(q);
+                const allocated = totalAllocated(q);
+                return (
+                  <tr key={q.id} className="border-t hover:bg-slate-50">
+                    <td className="p-3">
+                      <a href={`${basePath}/billing/quotes/${q.name}`} className="text-blue-600 hover:underline">
+                        {q.name}
+                      </a>
+                    </td>
+                    <td className="p-3 text-slate-700">{q.cost_object}</td>
+                    <td className="p-3 text-slate-700">{q.pi_name ?? '—'}</td>
+                    <td className="p-3 text-slate-700">{q.pm_designee ?? '—'}</td>
+                    <td className="p-3 text-slate-700">{fmtDollars(q.authorized_amount)}</td>
+                    <td className="p-3 text-slate-700">{fmtDollars(allocated)}</td>
+                    <td className="p-3 text-slate-700">{fmtDollars(spent)}</td>
+                    <td className="p-3">
+                      <QuoteCompactBudgetBar spent={spent} allocated={allocated} authorized={q.authorized_amount} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="p-4 text-sm text-slate-500">{emptyMessage}</p>
+      ))}
+    </section>
+  );
+}
+
 export function SectionHeader({ label }: { label: string }) {
   return (
     <div className="bg-slate-100 px-4 py-2 font-medium text-sm uppercase tracking-wide text-slate-600 rounded-t">

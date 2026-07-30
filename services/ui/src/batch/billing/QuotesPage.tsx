@@ -1,73 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Quote } from './api';
 import { fetchJson, apiCall } from './api';
-import { fmtDollars } from './fmt';
-import { ErrorBanner, QuoteCompactBudgetBar } from './shared';
-
-type SortKey = 'name' | 'cost_object' | 'pi_name' | 'pm_designee' | 'spent' | 'allocated' | 'limit' | 'usage';
-type SortDir = 'asc' | 'desc';
-
-const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
-  name: 'asc',
-  cost_object: 'asc',
-  pi_name: 'asc',
-  pm_designee: 'asc',
-  spent: 'desc',
-  allocated: 'desc',
-  limit: 'desc',
-  usage: 'desc',
-};
-
-function totalSpent(q: Quote): number {
-  return (q.billing_projects ?? []).reduce((s, bp) => s + bp.accrued_cost, 0);
-}
-
-function totalAllocated(q: Quote): number {
-  return (q.billing_projects ?? []).reduce((s, bp) => s + (bp.limit ?? 0), 0);
-}
-
-function sortQuotes(quotes: Quote[], key: SortKey, dir: SortDir): Quote[] {
-  return [...quotes].sort((a, b) => {
-    let cmp = 0;
-    switch (key) {
-      case 'name':      cmp = a.name.localeCompare(b.name); break;
-      case 'cost_object': cmp = a.cost_object.localeCompare(b.cost_object); break;
-      case 'pi_name':   cmp = (a.pi_name ?? '').localeCompare(b.pi_name ?? ''); break;
-      case 'pm_designee': cmp = (a.pm_designee ?? '').localeCompare(b.pm_designee ?? ''); break;
-      case 'spent':     cmp = totalSpent(a) - totalSpent(b); break;
-      case 'allocated': cmp = totalAllocated(a) - totalAllocated(b); break;
-      case 'limit':
-        if (a.authorized_amount === null && b.authorized_amount === null) cmp = 0;
-        else if (a.authorized_amount === null) cmp = 1;
-        else if (b.authorized_amount === null) cmp = -1;
-        else cmp = a.authorized_amount - b.authorized_amount;
-        break;
-      case 'usage': {
-        const pA = a.authorized_amount === null ? 0 : totalAllocated(a) / a.authorized_amount;
-        const pB = b.authorized_amount === null ? 0 : totalAllocated(b) / b.authorized_amount;
-        cmp = pA - pB;
-        break;
-      }
-    }
-    return dir === 'asc' ? cmp : -cmp;
-  });
-}
-
-function SortTh({ label, sortKey, current, dir, onSort }: {
-  label: string; sortKey: SortKey; current: SortKey; dir: SortDir; onSort: (k: SortKey) => void;
-}) {
-  const active = sortKey === current;
-  return (
-    <th className="text-left p-3 font-medium cursor-pointer select-none hover:bg-slate-100" onClick={() => onSort(sortKey)}>
-      <div className="flex items-center gap-1">
-        {label}
-        <span className="material-symbols-outlined text-sm text-slate-400">
-          {active ? (dir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
-        </span>
-      </div>
-    </th>
-  );
-}
+import { ErrorBanner, QuotesTable } from './shared';
 
 interface Props {
   basePath: string;
@@ -193,13 +127,6 @@ export function QuotesPage({ basePath, canCreate }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  const handleSort = (key: SortKey) => {
-    if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(key); setSortDir(SORT_DEFAULT_DIR[key]); }
-  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -217,6 +144,9 @@ export function QuotesPage({ basePath, canCreate }: Props) {
   }, [basePath]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+
+  const openQuotes = quotes?.filter((q) => q.state === 'open') ?? [];
+  const closedQuotes = quotes?.filter((q) => q.state === 'closed') ?? [];
 
   return (
     <div>
@@ -246,50 +176,19 @@ export function QuotesPage({ basePath, canCreate }: Props) {
 
       {!loading && !error && (
         <>
-          <h2 className="text-lg font-light text-slate-700 mb-3">Managed Quotes</h2>
-          {quotes && quotes.length > 0 ? (
-            <table className="w-full overflow-hidden rounded border text-sm mb-8">
-              <thead className="bg-slate-50 sticky top-0 z-10">
-                <tr>
-                  <SortTh label="Name"        sortKey="name"        current={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortTh label="Cost Object" sortKey="cost_object" current={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortTh label="PI Name"     sortKey="pi_name"     current={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortTh label="PM Designee" sortKey="pm_designee" current={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortTh label="Authorized"  sortKey="limit"       current={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortTh label="Allocated"   sortKey="allocated"   current={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortTh label="Spent"       sortKey="spent"       current={sortKey} dir={sortDir} onSort={handleSort} />
-                  <SortTh label="Usage"       sortKey="usage"       current={sortKey} dir={sortDir} onSort={handleSort} />
-                </tr>
-              </thead>
-              <tbody>
-                {sortQuotes(quotes, sortKey, sortDir).map((q) => {
-                  const spent = totalSpent(q);
-                  const allocated = totalAllocated(q);
-                  return (
-                    <tr key={q.id} className="border-t hover:bg-slate-50">
-                      <td className="p-3">
-                        <a href={`${basePath}/billing/quotes/${q.name}`} className="text-blue-600 hover:underline">
-                          {q.name}
-                        </a>
-                      </td>
-                      <td className="p-3 text-slate-700">{q.cost_object}</td>
-                      <td className="p-3 text-slate-700">{q.pi_name ?? '—'}</td>
-                      <td className="p-3 text-slate-700">{q.pm_designee ?? '—'}</td>
-                      <td className="p-3 text-slate-700">{fmtDollars(q.authorized_amount)}</td>
-                      <td className="p-3 text-slate-700">{fmtDollars(allocated)}</td>
-                      <td className="p-3 text-slate-700">{fmtDollars(spent)}</td>
-                      <td className="p-3">
-                        <QuoteCompactBudgetBar spent={spent} allocated={allocated} authorized={q.authorized_amount} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <p className="text-slate-500 text-sm mb-8">You are not a manager of any quotes.</p>
-          )}
-
+          <QuotesTable
+            label="Open Quotes"
+            quotes={openQuotes}
+            basePath={basePath}
+            emptyMessage="You are not a manager of any open quotes."
+          />
+          <QuotesTable
+            label="Closed Quotes"
+            quotes={closedQuotes}
+            basePath={basePath}
+            emptyMessage="No closed quotes."
+            defaultOpen={false}
+          />
         </>
       )}
 
@@ -303,3 +202,4 @@ export function QuotesPage({ basePath, canCreate }: Props) {
     </div>
   );
 }
+
