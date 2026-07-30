@@ -3067,11 +3067,7 @@ async def _query_billing(
 @auth.authenticated_users_only()
 @catch_ui_error_in_dev
 async def ui_get_billing(request, userdata):
-    date_format = '%m/%d/%Y'
-    default_start = datetime.datetime.now().replace(day=1).strftime(date_format)
-    start = request.query.get('start', default_start)
-    end = request.query.get('end', '')
-    return await render_template('batch', request, userdata, 'billing_react.html', {'start': start, 'end': end})
+    return await render_template('batch', request, userdata, 'billing_react.html', {})
 
 
 @routes.get('/api/v1alpha/billing')

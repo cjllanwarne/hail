@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { fetchJson } from './api';
 import { fmtCost } from './fmt';
 import { ErrorBanner } from './shared';
@@ -47,6 +47,11 @@ function todayIso(): string {
 function firstOfMonthIso(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+function firstOfMonthMmDdYyyy(): string {
+  const now = new Date();
+  return `${String(now.getMonth() + 1).padStart(2, '0')}/01/${now.getFullYear()}`;
 }
 
 function buildCsv(records: BillingRecord[], tab: Tab): { csv: string; filename: string; startLabel: string; endLabel: string } {
@@ -130,7 +135,7 @@ function TwoColumnTable({ rows, columns }: { rows: [string, string, string][]; c
 }
 
 export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: Props) {
-  const [start, setStart] = useState(initialStart);
+  const [start, setStart] = useState(initialStart || firstOfMonthMmDdYyyy());
   const [end, setEnd] = useState(initialEnd);
   const [records, setRecords] = useState<BillingRecord[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -139,13 +144,12 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
   const [exportStatus, setExportStatus] = useState('');
   const exportStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const fetchData = async (startVal: string, endVal: string) => {
     setLoading(true);
     setError(null);
     setRecords(null);
-    const params = new URLSearchParams({ start });
-    if (end) params.set('end', end);
+    const params = new URLSearchParams({ start: startVal });
+    if (endVal) params.set('end', endVal);
     try {
       const data = await fetchJson<BillingRecord[]>(`${basePath}/api/v1alpha/billing?${params}`);
       setRecords(data);
@@ -154,6 +158,16 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    void fetchData(start, end);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await fetchData(start, end);
   };
 
   const totalCost = records ? fmtCost(records.reduce((s, r) => s + r.total_spent, 0)) : null;
@@ -336,7 +350,7 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
         )}
 
         {!loading && !records && !error && (
-          <div className="p-8 text-slate-500 text-sm">Enter a date range and click Submit.</div>
+          <div className="p-8 text-slate-500 text-sm">No results.</div>
         )}
       </div>
     </div>
