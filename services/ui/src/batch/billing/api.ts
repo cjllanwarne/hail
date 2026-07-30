@@ -54,8 +54,7 @@ export async function fetchJson<T>(url: string): Promise<T> {
 }
 
 function getCsrfToken(): string {
-  const match = document.cookie.split('; ').find((c) => c.startsWith('_csrf='));
-  return match ? decodeURIComponent(match.split('=')[1]) : '';
+  return document.querySelector<HTMLMetaElement>('meta[name="csrf"]')?.getAttribute('value') ?? '';
 }
 
 export async function apiCall(method: string, url: string, body?: object): Promise<void> {
