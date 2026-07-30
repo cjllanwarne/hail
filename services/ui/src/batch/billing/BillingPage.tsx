@@ -10,7 +10,7 @@ interface BillingRecord {
   total_spent: number;
 }
 
-type Tab = 'by-project' | 'by-user' | 'by-bp-user' | 'by-quote';
+type Tab = 'by-project' | 'by-user' | 'by-bp-user' | 'by-quote' | 'by-quote-bp';
 
 interface Props {
   basePath: string;
@@ -81,6 +81,12 @@ function buildCsv(records: BillingRecord[], tab: Tab): { csv: string; filename: 
     const rows = [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([q, cost]) => [q, String(cost)]);
     csv = toCsv(rows, ['quote_name', 'total_spent']);
     label = 'by quote';
+  } else if (tab === 'by-quote-bp') {
+    const rows = [...records]
+      .sort((a, b) => a.quote_name.localeCompare(b.quote_name) || a.billing_project.localeCompare(b.billing_project))
+      .map((r) => [r.quote_name, r.billing_project, String(r.total_spent)]);
+    csv = toCsv(rows, ['quote_name', 'billing_project', 'total_spent']);
+    label = 'by quote and billing project';
   } else {
     const rows = [...records]
       .sort((a, b) => a.billing_project.localeCompare(b.billing_project) || a.user.localeCompare(b.user))
@@ -140,6 +146,7 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
   const [records, setRecords] = useState<BillingRecord[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showQuoteTabs, setShowQuoteTabs] = useState(isGlobalBm);
   const [tab, setTab] = useState<Tab>(isGlobalBm ? 'by-project' : 'by-bp-user');
   const [exportStatus, setExportStatus] = useState('');
   const exportStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -163,6 +170,17 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
   useEffect(() => {
     void fetchData(start, end);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (isGlobalBm) return;
+    fetchJson<unknown[]>(`${basePath}/api/v1alpha/quotes`).then((quotes) => {
+      if (quotes.length > 0) {
+        setShowQuoteTabs(true);
+        setTab('by-quote');
+      }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -200,6 +218,12 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
         for (const r of records) acc.set(r.quote_name, (acc.get(r.quote_name) ?? 0) + r.total_spent);
         return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([q, cost]): [string, string] => [q, fmtCost(cost) || '$0']);
       })()
+    : [];
+
+  const byQuoteBp: [string, string, string][] = records
+    ? [...records]
+        .sort((a, b) => a.quote_name.localeCompare(b.quote_name) || a.billing_project.localeCompare(b.billing_project))
+        .map((r): [string, string, string] => [r.quote_name, r.billing_project, fmtCost(r.total_spent) || '$0'])
     : [];
 
   const doExport = (action: 'download' | 'copy') => {
@@ -332,13 +356,15 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
                 {isGlobalBm && <TabButton label="By Billing Project" active={tab === 'by-project'} onClick={() => setTab('by-project')} />}
                 {isGlobalBm && <TabButton label="By User" active={tab === 'by-user'} onClick={() => setTab('by-user')} />}
                 <TabButton label="By Billing Project and User" active={tab === 'by-bp-user'} onClick={() => setTab('by-bp-user')} />
-                {isGlobalBm && <TabButton label="By Quote" active={tab === 'by-quote'} onClick={() => setTab('by-quote')} />}
+                {showQuoteTabs && <TabButton label="By Quote" active={tab === 'by-quote'} onClick={() => setTab('by-quote')} />}
+                {showQuoteTabs && <TabButton label="By Quote and Billing Project" active={tab === 'by-quote-bp'} onClick={() => setTab('by-quote-bp')} />}
               </div>
 
               {tab === 'by-project' && <SummaryTable rows={byProject} columns={['Billing Project', 'Cost']} />}
               {tab === 'by-user' && <SummaryTable rows={byUser} columns={['User', 'Cost']} />}
               {tab === 'by-bp-user' && <TwoColumnTable rows={byBpUser} columns={['Billing Project', 'User', 'Cost']} />}
               {tab === 'by-quote' && <SummaryTable rows={byQuote} columns={['Quote', 'Cost']} />}
+              {tab === 'by-quote-bp' && <TwoColumnTable rows={byQuoteBp} columns={['Quote', 'Billing Project', 'Cost']} />}
             </div>
           </>
         )}
