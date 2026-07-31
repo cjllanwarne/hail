@@ -10,11 +10,12 @@ const handlers: Record<string, () => void> = {
     const el = document.getElementById('billing-root')!;
     const basePath = el.dataset.basePath ?? '';
     const isGlobalBm = el.dataset.isGlobalBm === 'true';
+    const username = el.dataset.username ?? '';
     const params = new URLSearchParams(window.location.search);
     const initialStart = params.get('start') ?? '';
     const initialEnd = params.get('end') ?? '';
     createRoot(el).render(
-      <BillingPage basePath={basePath} isGlobalBm={isGlobalBm} initialStart={initialStart} initialEnd={initialEnd} />
+      <BillingPage basePath={basePath} isGlobalBm={isGlobalBm} username={username} initialStart={initialStart} initialEnd={initialEnd} />
     );
   },
   'billing-projects-root': () => {

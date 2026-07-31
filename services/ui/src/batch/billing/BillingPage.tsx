@@ -10,12 +10,14 @@ interface BillingRecord {
   total_spent: number;
 }
 
+
 type Tab = 'by-project' | 'by-user' | 'by-bp-user' | 'by-quote' | 'by-quote-bp';
-type Mode = 'billing-projects' | 'quotes';
+type Mode = 'billing-projects' | 'quotes' | 'just-me';
 
 interface Props {
   basePath: string;
   isGlobalBm: boolean;
+  username: string;
   initialStart: string;
   initialEnd: string;
 }
@@ -163,7 +165,7 @@ function TwoColumnTable({ rows, columns }: { rows: [string, string, string][]; c
   );
 }
 
-export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: Props) {
+export function BillingPage({ basePath, isGlobalBm, username, initialStart, initialEnd }: Props) {
   const initialStartVal = initialStart || firstOfMonthMmDdYyyy();
   const [start, setStart] = useState(initialStartVal);
   const [end, setEnd] = useState(initialEnd);
@@ -177,6 +179,8 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
   const [tab, setTab] = useState<Tab>(isGlobalBm ? 'by-project' : 'by-bp-user');
   const [exportStatus, setExportStatus] = useState('');
   const exportStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [managedQuoteNames, setManagedQuoteNames] = useState<Set<string> | null>(null);
+  const [bpCount, setBpCount] = useState<number | null>(null);
 
   const isDirty = start !== appliedStart || end !== appliedEnd;
 
@@ -200,13 +204,15 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
 
   useEffect(() => {
     void fetchData(start, end);
+    fetchJson<unknown[]>(`${basePath}/api/v1alpha/billing_projects`).then((bps) => setBpCount(bps.length)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (isGlobalBm) return;
-    fetchJson<unknown[]>(`${basePath}/api/v1alpha/quotes`).then((quotes) => {
-      if (quotes.length > 0) {
+    fetchJson<Array<{ name: string }>>(`${basePath}/api/v1alpha/quotes`).then((quotes) => {
+      const names = new Set(quotes.map((q) => q.name));
+      setManagedQuoteNames(names);
+      if (names.size > 0) {
         setShowQuotes(true);
         setMode('quotes');
         setTab('by-quote');
@@ -229,12 +235,21 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
     setMode(newMode);
     if (newMode === 'billing-projects') {
       setTab(isGlobalBm ? 'by-project' : 'by-bp-user');
-    } else {
+    } else if (newMode === 'quotes') {
       setTab('by-quote');
+    } else {
+      setTab('by-bp-user');
     }
   };
 
-  const totalCost = records ? fmtCost(records.reduce((s, r) => s + r.total_spent, 0)) : null;
+  const quoteRecords = records && managedQuoteNames
+    ? records.filter((r) => managedQuoteNames.has(r.quote_name))
+    : records;
+
+  const justMeRecords = records ? records.filter((r) => r.user === username) : null;
+
+  const activeRecords = mode === 'quotes' ? quoteRecords : mode === 'just-me' ? justMeRecords : records;
+  const totalCost = activeRecords ? fmtCost(activeRecords.reduce((s, r) => s + r.total_spent, 0)) : null;
 
   const byProject: [string, string][] = records
     ? (() => {
@@ -252,29 +267,29 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
       })()
     : [];
 
-  const byBpUser: [string, string, string][] = records
-    ? [...records]
+  const byBpUser: [string, string, string][] = activeRecords
+    ? [...activeRecords]
         .sort((a, b) => a.billing_project.localeCompare(b.billing_project) || a.user.localeCompare(b.user))
         .map((r): [string, string, string] => [r.billing_project, r.user, fmtCost(r.total_spent) || '$0'])
     : [];
 
-  const byQuote: [string, string][] = records
+  const byQuote: [string, string][] = quoteRecords
     ? (() => {
         const acc = new Map<string, number>();
-        for (const r of records) acc.set(r.quote_name, (acc.get(r.quote_name) ?? 0) + r.total_spent);
+        for (const r of quoteRecords) acc.set(r.quote_name, (acc.get(r.quote_name) ?? 0) + r.total_spent);
         return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([q, cost]): [string, string] => [q, fmtCost(cost) || '$0']);
       })()
     : [];
 
-  const byQuoteBp: [string, string, string][] = records
-    ? [...records]
+  const byQuoteBp: [string, string, string][] = quoteRecords
+    ? [...quoteRecords]
         .sort((a, b) => a.quote_name.localeCompare(b.quote_name) || a.billing_project.localeCompare(b.billing_project))
         .map((r): [string, string, string] => [r.quote_name, r.billing_project, fmtCost(r.total_spent) || '$0'])
     : [];
 
   const doExport = (action: 'download' | 'copy') => {
-    if (!records) return;
-    const { csv, filename } = buildCsv(records, tab, appliedStart, appliedEnd);
+    if (!activeRecords) return;
+    const { csv, filename } = buildCsv(activeRecords, tab, appliedStart, appliedEnd);
 
     if (action === 'download') {
       const blob = new Blob([csv], { type: 'text/csv' });
@@ -300,13 +315,16 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
 
   const spendContext = mode === 'billing-projects'
     ? `In your billing projects, ${appliedStart} – ${appliedEnd || 'today'}`
-    : `Across your managed quotes, ${appliedStart} – ${appliedEnd || 'today'}`;
+    : mode === 'quotes'
+    ? `Across your managed quotes, ${appliedStart} – ${appliedEnd || 'today'}`
+    : `Your personal spend, ${appliedStart} – ${appliedEnd || 'today'}`;
 
   return (
     <div className="flex flex-wrap justify-around items-start md:mt-16">
       {/* LEFT: Settings */}
       <div className="lg:basis-1/3">
         <h1 className="text-2xl font-light mb-4">Billing</h1>
+
 
         <form onSubmit={(e) => void handleApply(e)}>
           <div className="flex flex-wrap justify-between space-y-2 items-end">
@@ -356,27 +374,36 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
           </div>
         </form>
 
-        {showQuotes && (
-          <div className="mt-6">
-            <p className="text-sm text-zinc-500 mb-2">View spending in…</p>
-            <div className="flex rounded border border-zinc-300 overflow-hidden">
-              <button
-                type="button"
-                onClick={() => handleModeChange('billing-projects')}
-                className={`flex-1 px-4 py-2 text-sm hover:cursor-pointer ${mode === 'billing-projects' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-600 hover:bg-zinc-50'}`}
-              >
-                Billing Projects
-              </button>
+        <div className="mt-6">
+          <p className="text-sm text-zinc-500 mb-2">View spending as…</p>
+          <div className="flex rounded border border-zinc-300 overflow-hidden">
+            {showQuotes && managedQuoteNames !== null && managedQuoteNames.size > 0 && (
               <button
                 type="button"
                 onClick={() => handleModeChange('quotes')}
-                className={`flex-1 px-4 py-2 text-sm border-l border-zinc-300 hover:cursor-pointer ${mode === 'quotes' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-600 hover:bg-zinc-50'}`}
+                className={`flex-1 px-4 py-2 text-sm hover:cursor-pointer ${mode === 'quotes' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-600 hover:bg-zinc-50'}`}
               >
-                Quotes
+                … a quote manager (of {managedQuoteNames.size} quotes)
               </button>
-            </div>
+            )}
+            {bpCount !== null && bpCount > 0 && (
+              <button
+                type="button"
+                onClick={() => handleModeChange('billing-projects')}
+                className={`flex-1 px-4 py-2 text-sm border-l border-zinc-300 hover:cursor-pointer ${mode === 'billing-projects' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-600 hover:bg-zinc-50'}`}
+              >
+                … a member (of {bpCount} billing projects)
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleModeChange('just-me')}
+              className={`flex-1 px-4 py-2 text-sm border-l border-zinc-300 hover:cursor-pointer ${mode === 'just-me' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-600 hover:bg-zinc-50'}`}
+            >
+              … just me
+            </button>
           </div>
-        )}
+        </div>
 
         <p className="text-zinc-500 text-balance py-8">
           Start must be a date in the format MM/DD/YYYY. End is an optional date in the format
@@ -411,6 +438,7 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
                 {mode === 'billing-projects' && <TabButton label="By Billing Project and User" active={tab === 'by-bp-user'} onClick={() => setTab('by-bp-user')} />}
                 {mode === 'quotes' && <TabButton label="By Quote" active={tab === 'by-quote'} onClick={() => setTab('by-quote')} />}
                 {mode === 'quotes' && <TabButton label="By Quote and Billing Project" active={tab === 'by-quote-bp'} onClick={() => setTab('by-quote-bp')} />}
+                {mode === 'just-me' && <TabButton label="By Billing Project and User" active={tab === 'by-bp-user'} onClick={() => setTab('by-bp-user')} />}
                 <div className="ml-auto flex items-center gap-1 px-3 pb-1">
                   {exportStatus && <span className="text-sm text-zinc-400">{exportStatus}</span>}
                   <button
