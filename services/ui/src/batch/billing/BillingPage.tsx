@@ -237,7 +237,7 @@ export function BillingPage({ basePath, isGlobalBm, username, initialStart, init
   const [error, setError] = useState<string | null>(null);
   const [showQuotes, setShowQuotes] = useState(isGlobalBm);
   const [mode, setMode] = useState<Mode>('billing-projects');
-  const [tab, setTab] = useState<Tab>(isGlobalBm ? 'by-project' : 'by-bp-user');
+  const [tab, setTab] = useState<Tab>('by-project');
   const [exportStatus, setExportStatus] = useState('');
   const exportStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [managedQuoteNames, setManagedQuoteNames] = useState<Set<string> | null>(null);
@@ -295,7 +295,7 @@ export function BillingPage({ basePath, isGlobalBm, username, initialStart, init
   const handleModeChange = (newMode: Mode) => {
     setMode(newMode);
     if (newMode === 'billing-projects') {
-      setTab(isGlobalBm ? 'by-project' : 'by-bp-user');
+      setTab('by-project');
     } else if (newMode === 'quotes') {
       setTab('by-quote');
     } else {
@@ -494,7 +494,7 @@ export function BillingPage({ basePath, isGlobalBm, username, initialStart, init
 
             <div className="bg-white">
               <div className="flex border-b text-lg flex-wrap items-center">
-                {mode === 'billing-projects' && isGlobalBm && <TabButton label="By Billing Project" active={tab === 'by-project'} onClick={() => setTab('by-project')} />}
+                {mode === 'billing-projects' && <TabButton label="By Billing Project" active={tab === 'by-project'} onClick={() => setTab('by-project')} />}
                 {mode === 'billing-projects' && isGlobalBm && <TabButton label="By User" active={tab === 'by-user'} onClick={() => setTab('by-user')} />}
                 {mode === 'billing-projects' && <TabButton label="By Billing Project and User" active={tab === 'by-bp-user'} onClick={() => setTab('by-bp-user')} />}
                 {mode === 'quotes' && <TabButton label="By Quote" active={tab === 'by-quote'} onClick={() => setTab('by-quote')} />}
