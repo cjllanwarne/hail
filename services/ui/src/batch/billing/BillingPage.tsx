@@ -135,6 +135,7 @@ function DownloadIcon() {
 }
 
 function sortVal(v: string): string | number {
+  if (v.startsWith('<$')) return Number.EPSILON;
   return v.startsWith('$') ? parseFloat(v.replace(/[$,]/g, '')) || 0 : v;
 }
 
