@@ -5,8 +5,8 @@ export function fmtDollars(v: number | null): string {
 
 export function fmtCost(v: number): string {
   if (v === 0) return '$0';
-  if (v < 0.0001) return '<$0.0001';
-  return '$' + v.toFixed(4);
+  if (v < 0.01) return '<$0.01';
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function fmtTimestamp(ms: number | null | undefined): string {

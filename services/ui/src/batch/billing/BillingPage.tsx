@@ -134,11 +134,49 @@ function DownloadIcon() {
   );
 }
 
+function sortVal(v: string): string | number {
+  return v.startsWith('$') ? parseFloat(v.replace(/[$,]/g, '')) || 0 : v;
+}
+
+function cmpVals(a: string | number, b: string | number): number {
+  return typeof a === 'number' ? a - (b as number) : (a as string).localeCompare(b as string);
+}
+
+function SortIndicator({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
+  return (
+    <span className="material-symbols-outlined text-sm text-slate-400">
+      {active ? (dir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+    </span>
+  );
+}
+
 function SummaryTable({ rows, columns }: { rows: [string, string][]; columns: [string, string] }) {
+  const [sortCol, setSortCol] = useState(0);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (col: number) => {
+    if (sortCol === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir(rows.length > 0 && typeof sortVal(rows[0][col]) === 'number' ? 'desc' : 'asc'); }
+  };
+
+  const sorted = [...rows].sort((a, b) => {
+    const cmp = cmpVals(sortVal(a[sortCol]), sortVal(b[sortCol]));
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
   return (
     <table className="w-full overflow-auto">
+      <thead>
+        <tr className="border-b bg-slate-50">
+          {columns.map((col, i) => (
+            <th key={col} onClick={() => handleSort(i)} className="text-left p-3 font-medium cursor-pointer select-none hover:bg-slate-100">
+              <div className="flex items-center gap-1">{col}<SortIndicator active={sortCol === i} dir={sortDir} /></div>
+            </th>
+          ))}
+        </tr>
+      </thead>
       <tbody>
-        {rows.map(([a, b]) => (
+        {sorted.map(([a, b]) => (
           <tr key={a} className="border-y">
             <td className="p-2">{a}</td>
             <td className="p-2">{b}</td>
@@ -150,10 +188,32 @@ function SummaryTable({ rows, columns }: { rows: [string, string][]; columns: [s
 }
 
 function TwoColumnTable({ rows, columns }: { rows: [string, string, string][]; columns: [string, string, string] }) {
+  const [sortCol, setSortCol] = useState(0);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (col: number) => {
+    if (sortCol === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir(rows.length > 0 && typeof sortVal(rows[0][col]) === 'number' ? 'desc' : 'asc'); }
+  };
+
+  const sorted = [...rows].sort((a, b) => {
+    const cmp = cmpVals(sortVal(a[sortCol]), sortVal(b[sortCol]));
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
   return (
     <table className="w-full overflow-auto">
+      <thead>
+        <tr className="border-b bg-slate-50">
+          {columns.map((col, i) => (
+            <th key={col} onClick={() => handleSort(i)} className="text-left p-3 font-medium cursor-pointer select-none hover:bg-slate-100">
+              <div className="flex items-center gap-1">{col}<SortIndicator active={sortCol === i} dir={sortDir} /></div>
+            </th>
+          ))}
+        </tr>
+      </thead>
       <tbody>
-        {rows.map(([a, b, c], i) => (
+        {sorted.map(([a, b, c], i) => (
           <tr key={i} className="border-y">
             <td className="p-2">{a}</td>
             <td className="p-2">{b}</td>
