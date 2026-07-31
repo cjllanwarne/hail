@@ -11,6 +11,7 @@ interface BillingRecord {
 }
 
 type Tab = 'by-project' | 'by-user' | 'by-bp-user' | 'by-quote' | 'by-quote-bp';
+type Mode = 'billing-projects' | 'quotes';
 
 interface Props {
   basePath: string;
@@ -54,11 +55,14 @@ function firstOfMonthMmDdYyyy(): string {
   return `${String(now.getMonth() + 1).padStart(2, '0')}/01/${now.getFullYear()}`;
 }
 
-function buildCsv(records: BillingRecord[], tab: Tab): { csv: string; filename: string; startLabel: string; endLabel: string } {
-  const startLabel = (document.getElementById('billing-start') as HTMLInputElement | null)?.value ?? '';
-  const endLabel = (document.getElementById('billing-end') as HTMLInputElement | null)?.value ?? '';
-  const startIso = startLabel ? mmddyyyyToIso(startLabel) : firstOfMonthIso();
-  const endIso = endLabel ? mmddyyyyToIso(endLabel) : todayIso();
+function buildCsv(
+  records: BillingRecord[],
+  tab: Tab,
+  appliedStart: string,
+  appliedEnd: string,
+): { csv: string; filename: string } {
+  const startIso = appliedStart ? mmddyyyyToIso(appliedStart) : firstOfMonthIso();
+  const endIso = appliedEnd ? mmddyyyyToIso(appliedEnd) : todayIso();
 
   let csv: string;
   let label: string;
@@ -95,7 +99,7 @@ function buildCsv(records: BillingRecord[], tab: Tab): { csv: string; filename: 
     label = 'by billing project and user';
   }
 
-  return { csv, filename: `Hail billing export ${startIso} to ${endIso} ${label}.csv`, startLabel, endLabel };
+  return { csv, filename: `Hail billing export ${startIso} to ${endIso} ${label}.csv` };
 }
 
 function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
@@ -106,6 +110,25 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
     >
       {label}
     </button>
+  );
+}
+
+function ClipboardIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+      <polyline points="7 10 12 15 17 10"></polyline>
+      <line x1="12" y1="15" x2="12" y2="3"></line>
+    </svg>
   );
 }
 
@@ -141,15 +164,21 @@ function TwoColumnTable({ rows, columns }: { rows: [string, string, string][]; c
 }
 
 export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: Props) {
-  const [start, setStart] = useState(initialStart || firstOfMonthMmDdYyyy());
+  const initialStartVal = initialStart || firstOfMonthMmDdYyyy();
+  const [start, setStart] = useState(initialStartVal);
   const [end, setEnd] = useState(initialEnd);
+  const [appliedStart, setAppliedStart] = useState(initialStartVal);
+  const [appliedEnd, setAppliedEnd] = useState(initialEnd);
   const [records, setRecords] = useState<BillingRecord[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showQuoteTabs, setShowQuoteTabs] = useState(isGlobalBm);
+  const [showQuotes, setShowQuotes] = useState(isGlobalBm);
+  const [mode, setMode] = useState<Mode>('billing-projects');
   const [tab, setTab] = useState<Tab>(isGlobalBm ? 'by-project' : 'by-bp-user');
   const [exportStatus, setExportStatus] = useState('');
   const exportStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const isDirty = start !== appliedStart || end !== appliedEnd;
 
   const fetchData = async (startVal: string, endVal: string) => {
     setLoading(true);
@@ -160,6 +189,8 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
     try {
       const data = await fetchJson<BillingRecord[]>(`${basePath}/api/v1alpha/billing?${params}`);
       setRecords(data);
+      setAppliedStart(startVal);
+      setAppliedEnd(endVal);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -176,16 +207,31 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
     if (isGlobalBm) return;
     fetchJson<unknown[]>(`${basePath}/api/v1alpha/quotes`).then((quotes) => {
       if (quotes.length > 0) {
-        setShowQuoteTabs(true);
+        setShowQuotes(true);
+        setMode('quotes');
         setTab('by-quote');
       }
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleApply = async (e: React.FormEvent) => {
     e.preventDefault();
     await fetchData(start, end);
+  };
+
+  const handleUndo = () => {
+    setStart(appliedStart);
+    setEnd(appliedEnd);
+  };
+
+  const handleModeChange = (newMode: Mode) => {
+    setMode(newMode);
+    if (newMode === 'billing-projects') {
+      setTab(isGlobalBm ? 'by-project' : 'by-bp-user');
+    } else {
+      setTab('by-quote');
+    }
   };
 
   const totalCost = records ? fmtCost(records.reduce((s, r) => s + r.total_spent, 0)) : null;
@@ -228,7 +274,7 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
 
   const doExport = (action: 'download' | 'copy') => {
     if (!records) return;
-    const { csv, filename } = buildCsv(records, tab);
+    const { csv, filename } = buildCsv(records, tab, appliedStart, appliedEnd);
 
     if (action === 'download') {
       const blob = new Blob([csv], { type: 'text/csv' });
@@ -252,14 +298,17 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
     exportStatusTimeout.current = setTimeout(() => setExportStatus(''), 1500);
   };
 
+  const spendContext = mode === 'billing-projects'
+    ? `In your billing projects, ${appliedStart} – ${appliedEnd || 'today'}`
+    : `Across your managed quotes, ${appliedStart} – ${appliedEnd || 'today'}`;
+
   return (
     <div className="flex flex-wrap justify-around items-start md:mt-16">
+      {/* LEFT: Settings */}
       <div className="lg:basis-1/3">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-light">Billing</h1>
-        </div>
+        <h1 className="text-2xl font-light mb-4">Billing</h1>
 
-        <form onSubmit={(e) => void handleSubmit(e)}>
+        <form onSubmit={(e) => void handleApply(e)}>
           <div className="flex flex-wrap justify-between space-y-2 items-end">
             <div className="flex flex-col">
               <label className="mb-1" htmlFor="billing-start">Start</label>
@@ -286,17 +335,48 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
                 placeholder="MM/DD/YYYY (optional)"
               />
             </div>
-            <div className="h-1/2">
+            <div className="h-1/2 flex items-center gap-3">
               <button
                 type="submit"
                 disabled={loading}
                 className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
               >
-                {loading ? 'Loading…' : 'Submit'}
+                {loading ? 'Loading…' : 'Apply'}
               </button>
+              {isDirty && (
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  className="text-sm text-zinc-500 hover:text-zinc-800 underline hover:cursor-pointer"
+                >
+                  Undo changes
+                </button>
+              )}
             </div>
           </div>
         </form>
+
+        {showQuotes && (
+          <div className="mt-6">
+            <p className="text-sm text-zinc-500 mb-2">View spending in…</p>
+            <div className="flex rounded border border-zinc-300 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => handleModeChange('billing-projects')}
+                className={`flex-1 px-4 py-2 text-sm hover:cursor-pointer ${mode === 'billing-projects' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-600 hover:bg-zinc-50'}`}
+              >
+                Billing Projects
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModeChange('quotes')}
+                className={`flex-1 px-4 py-2 text-sm border-l border-zinc-300 hover:cursor-pointer ${mode === 'quotes' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-600 hover:bg-zinc-50'}`}
+              >
+                Quotes
+              </button>
+            </div>
+          </div>
+        )}
 
         <p className="text-zinc-500 text-balance py-8">
           Start must be a date in the format MM/DD/YYYY. End is an optional date in the format
@@ -304,40 +384,10 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
           then no currently running batches are included. All dates search for batches that have
           completed within that time interval (inclusive).
         </p>
-
-        {records && (
-          <details className="mt-4 border rounded">
-            <summary className="p-3 cursor-pointer font-medium select-none">Export to spreadsheet</summary>
-            <div className="p-4 space-y-3">
-              <p className="text-sm text-zinc-500">
-                Dates: <span className="font-medium">{start}</span> to{' '}
-                <span className="font-medium">{end || 'today'}</span>{' '}
-                <span className="italic">
-                  ({end ? 'currently-running batches excluded' : 'including currently-running batches'})
-                </span>
-              </p>
-              <p className="text-sm text-zinc-500">Exports the currently selected tab.</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => doExport('download')}
-                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
-                >
-                  Download CSV
-                </button>
-                <button
-                  onClick={() => doExport('copy')}
-                  className="border border-blue-600 text-blue-600 px-4 py-2 rounded hover:bg-blue-50 text-sm"
-                >
-                  Copy to Clipboard
-                </button>
-              </div>
-              {exportStatus && <p className="text-sm text-zinc-500">{exportStatus}</p>}
-            </div>
-          </details>
-        )}
       </div>
 
-      <div className="bg-slate-100 border rounded overflow-hidden lg:basis-1/2">
+      {/* RIGHT: Results */}
+      <div className={`bg-slate-100 border rounded overflow-hidden lg:basis-1/2 transition-opacity ${isDirty && !loading ? 'opacity-40 pointer-events-none' : ''}`}>
         {error && <ErrorBanner message={error} />}
 
         {loading && (
@@ -348,16 +398,36 @@ export function BillingPage({ basePath, isGlobalBm, initialStart, initialEnd }: 
 
         {!loading && records && (
           <>
-            <div className="text-xl m-4">
-              Total spend: <span className="font-light text-lg">{totalCost}</span>
+            <div className="m-4 p-4 bg-white border rounded">
+              <p className="text-xs text-zinc-400 uppercase tracking-wide font-medium mb-1">Total spend</p>
+              <p className="text-zinc-400 text-sm mb-2">{spendContext}</p>
+              <p className="text-2xl font-bold">{totalCost}</p>
             </div>
+
             <div className="bg-white">
-              <div className="flex border-b text-lg flex-wrap">
-                {isGlobalBm && <TabButton label="By Billing Project" active={tab === 'by-project'} onClick={() => setTab('by-project')} />}
-                {isGlobalBm && <TabButton label="By User" active={tab === 'by-user'} onClick={() => setTab('by-user')} />}
-                <TabButton label="By Billing Project and User" active={tab === 'by-bp-user'} onClick={() => setTab('by-bp-user')} />
-                {showQuoteTabs && <TabButton label="By Quote" active={tab === 'by-quote'} onClick={() => setTab('by-quote')} />}
-                {showQuoteTabs && <TabButton label="By Quote and Billing Project" active={tab === 'by-quote-bp'} onClick={() => setTab('by-quote-bp')} />}
+              <div className="flex border-b text-lg flex-wrap items-center">
+                {mode === 'billing-projects' && isGlobalBm && <TabButton label="By Billing Project" active={tab === 'by-project'} onClick={() => setTab('by-project')} />}
+                {mode === 'billing-projects' && isGlobalBm && <TabButton label="By User" active={tab === 'by-user'} onClick={() => setTab('by-user')} />}
+                {mode === 'billing-projects' && <TabButton label="By Billing Project and User" active={tab === 'by-bp-user'} onClick={() => setTab('by-bp-user')} />}
+                {mode === 'quotes' && <TabButton label="By Quote" active={tab === 'by-quote'} onClick={() => setTab('by-quote')} />}
+                {mode === 'quotes' && <TabButton label="By Quote and Billing Project" active={tab === 'by-quote-bp'} onClick={() => setTab('by-quote-bp')} />}
+                <div className="ml-auto flex items-center gap-1 px-3 pb-1">
+                  {exportStatus && <span className="text-sm text-zinc-400">{exportStatus}</span>}
+                  <button
+                    onClick={() => doExport('copy')}
+                    title="Copy to clipboard"
+                    className="p-2 text-zinc-400 hover:text-zinc-700 hover:cursor-pointer"
+                  >
+                    <ClipboardIcon />
+                  </button>
+                  <button
+                    onClick={() => doExport('download')}
+                    title="Download CSV"
+                    className="p-2 text-zinc-400 hover:text-zinc-700 hover:cursor-pointer"
+                  >
+                    <DownloadIcon />
+                  </button>
+                </div>
               </div>
 
               {tab === 'by-project' && <SummaryTable rows={byProject} columns={['Billing Project', 'Cost']} />}
