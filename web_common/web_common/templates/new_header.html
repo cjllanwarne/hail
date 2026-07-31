@@ -40,7 +40,7 @@
     {% endcall %}
 
     {% if userdata and userdata['username'] %}
-    {% call header_item('Billing Projects', batch_base_url + '/billing_projects') %}
+    {% call header_item('Billing', batch_base_url + '/billing') %}
     <a class="block hover:bg-slate-100 px-2 py-1" href="{{ batch_base_url }}/billing/quotes">Quotes</a>
     <a class="block hover:bg-slate-100 px-2 py-1" href="{{ batch_base_url }}/billing_projects">Billing Projects</a>
     <a class="block hover:bg-slate-100 px-2 py-1" href="{{ batch_base_url }}/billing_limits">Billing Limits</a>
