@@ -7,6 +7,7 @@ import { BatchStateIcon } from '../shared/BatchStateIcon';
 import { useTip, FloatingTip } from '../shared/useTip';
 import { AutoRefreshBar } from '../shared/AutoRefreshBar';
 import { JobGroupTree } from './components/JobGroupTree';
+import { JobTimingChart } from './components/JobTimingChart';
 import { JobList } from './components/JobList';
 import type { JobState, JobListEntry } from './components/JobList';
 import { useBatchData } from '../batch/components/useBatchData';
@@ -445,8 +446,8 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
   const missingFields = missingActivePrFields(pr);
   const warning = <MissingApiFieldsWarning fields={missingFields} />;
   const [tip, onTipEnter, onTipLeave] = useTip();
-  const [jobsTab, setJobsTab] = useState<'list' | 'groups'>('list');
-  const { batchStatus, jobs, jobsError } = batchData;
+  const [jobsTab, setJobsTab] = useState<'list' | 'groups' | 'timing'>('list');
+  const { batchStatus, jobs, jobsError, timing, timingError, fetchTiming } = batchData;
 
   if (pr.batch) {
     const jobBuckets = jobs ? bucketJobs(jobs) : null;
@@ -549,6 +550,15 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
               >
                 Job Groups
               </button>
+              <button
+                type="button"
+                onClick={() => { setJobsTab('timing'); fetchTiming(); }}
+                className={`pb-1.5 -mb-px border-b-2 cursor-pointer ${
+                  jobsTab === 'timing' ? 'border-sky-600 text-sky-700 font-medium' : 'border-transparent text-zinc-500 hover:text-zinc-700'
+                }`}
+              >
+                Timing
+              </button>
             </div>
 
             {/* Both tabs stay mounted (hidden via CSS, not conditionally rendered) so switching
@@ -576,6 +586,15 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
                 <JobGroupTree batchBaseUrl={batchBaseUrl} batchId={pr.batch.id} batchData={batchData} />
               ) : (
                 <p className="text-sm text-zinc-500">Loading job groups&hellip;</p>
+              )}
+            </div>
+            <div className="p-3" hidden={jobsTab !== 'timing'}>
+              {timingError ? (
+                <p className="text-sm text-red-600">{timingError}</p>
+              ) : timing === undefined ? (
+                <p className="text-sm text-zinc-500">Loading timing&hellip;</p>
+              ) : (
+                <JobTimingChart timing={timing} />
               )}
             </div>
           </div>

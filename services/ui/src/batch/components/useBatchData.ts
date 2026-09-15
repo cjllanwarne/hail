@@ -33,6 +33,17 @@ export interface JobGroupSummary {
   attributes?: Record<string, string>;
 }
 
+// Mirrors JobTimingEntryV1Alpha (hailtop/batch_client/types.py) — one row per attempt of every
+// job in the batch. A job that hasn't started yet has a null attempt_id/start_time/end_time.
+export interface JobTimingEntry {
+  job_id: number;
+  attempt_id: string | null;
+  start_time: number | null;
+  end_time: number | null;
+  reason: string | null;
+  state: JobState;
+}
+
 export interface BatchStatus {
   id: number;
   state: string;
@@ -104,6 +115,15 @@ export interface UseBatchDataResult {
   // repeatedly (e.g. on every row expand): a second call while a fetch is in flight or after one
   // has already succeeded is a no-op. A failed fetch is not cached, so a later call retries.
   fetchJobGroups: (parentJobGroupId: number) => void;
+  // Per-attempt start/end timing for every job in the batch, for a timing overview chart. Whole
+  // batch only for now (not scoped to a job group) — undefined until fetchTiming() has been
+  // called and resolved at least once.
+  timing: JobTimingEntry[] | undefined;
+  timingError: string | undefined;
+  // Fetches (once) and caches batch-wide timing data, for as long as this hook instance stays
+  // mounted. Safe to call repeatedly: a no-op while in flight or after success. A failed fetch is
+  // not cached, so a later call retries.
+  fetchTiming: () => void;
 }
 
 export function useBatchData(batchBaseUrl: string, batchId: number | undefined): UseBatchDataResult {
@@ -118,6 +138,10 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
   // state update to land — a ref (not state) because it's bookkeeping, not something that
   // should itself trigger a re-render.
   const jobGroupFetchesStarted = useRef<Set<number>>(new Set());
+
+  const [timing, setTiming] = useState<JobTimingEntry[] | undefined>(undefined);
+  const [timingError, setTimingError] = useState<string | undefined>(undefined);
+  const timingFetchStarted = useRef(false);
 
   const refresh = useCallback(async (isRefresh: boolean) => {
     if (batchId === undefined) return;
@@ -148,6 +172,20 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
       .catch((e: unknown) => {
         jobGroupFetchesStarted.current.delete(parentJobGroupId); // allow a retry
         setJobGroupErrorsByParent((prev) => new Map(prev).set(parentJobGroupId, e instanceof Error ? e.message : String(e)));
+      });
+  }, [batchBaseUrl, batchId]);
+
+  const fetchTiming = useCallback(() => {
+    if (batchId === undefined) return;
+    if (timingFetchStarted.current) return;
+    timingFetchStarted.current = true;
+    apiFetch<JobTimingEntry[]>(`${batchBaseUrl}/api/v1alpha/batches/${batchId}/timing`)
+      .then((entries) => {
+        setTiming(entries);
+      })
+      .catch((e: unknown) => {
+        timingFetchStarted.current = false; // allow a retry
+        setTimingError(e instanceof Error ? e.message : String(e));
       });
   }, [batchBaseUrl, batchId]);
 
@@ -189,5 +227,8 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
     getJobGroups,
     getJobGroupsError,
     fetchJobGroups: fetchJobGroupsFor,
+    timing,
+    timingError,
+    fetchTiming,
   };
 }
