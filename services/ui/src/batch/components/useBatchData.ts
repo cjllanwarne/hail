@@ -33,8 +33,10 @@ export interface JobGroupSummary {
   attributes?: Record<string, string>;
 }
 
-// Mirrors JobTimingEntryV1Alpha (hailtop/batch_client/types.py) — one row per attempt of every
-// job in the batch. A job that hasn't started yet has a null attempt_id/start_time/end_time.
+// Flattened, one row per attempt of every job in the batch — built client-side from the real
+// paginated GetBatchTimingResponseV1Alpha (hailtop/batch_client/types.py), which nests attempts
+// under each job and carries no job state. `state` here is joined in from the already-fetched
+// job list. A job that hasn't started yet has a null attempt_id/start_time/end_time.
 export interface JobTimingEntry {
   job_id: number;
   attempt_id: string | null;
@@ -42,6 +44,30 @@ export interface JobTimingEntry {
   end_time: number | null;
   reason: string | null;
   state: JobState;
+}
+
+interface JobOffsetPagination {
+  current_job_offset: number;
+  next_page_job_offset: number | null;
+  page_size: number;
+  total_jobs: number;
+}
+
+interface AttemptTiming {
+  attempt_id: string;
+  start_time: number | null;
+  end_time: number | null;
+  reason: string | null;
+}
+
+interface JobTiming {
+  job_id: number;
+  attempts: AttemptTiming[];
+}
+
+interface GetBatchTimingResponse {
+  data: JobTiming[];
+  pagination: JobOffsetPagination;
 }
 
 export interface BatchStatus {
@@ -87,6 +113,20 @@ async function fetchJobGroups(batchBaseUrl: string, batchId: number, parentJobGr
     all.push(...page.job_groups);
     if (page.last_job_group_id === undefined) break;
     lastId = page.last_job_group_id;
+  }
+  return all;
+}
+
+async function fetchAllTiming(batchBaseUrl: string, batchId: number): Promise<JobTiming[]> {
+  const all: JobTiming[] = [];
+  let jobOffset: number | undefined;
+  for (;;) {
+    const url = new URL(`${batchBaseUrl}/api/v1alpha/batches/${batchId}/timing`, window.location.origin);
+    if (jobOffset !== undefined) url.searchParams.set('job_offset', String(jobOffset));
+    const page = await apiFetch<GetBatchTimingResponse>(url.toString());
+    all.push(...page.data);
+    if (page.pagination.next_page_job_offset === null) break;
+    jobOffset = page.pagination.next_page_job_offset;
   }
   return all;
 }
@@ -179,15 +219,32 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
     if (batchId === undefined) return;
     if (timingFetchStarted.current) return;
     timingFetchStarted.current = true;
-    apiFetch<JobTimingEntry[]>(`${batchBaseUrl}/api/v1alpha/batches/${batchId}/timing`)
-      .then((entries) => {
+    fetchAllTiming(batchBaseUrl, batchId)
+      .then((jobTimings) => {
+        // Timing responses don't carry job state (see GetBatchTimingResponseV1Alpha) — join it
+        // in from the already-fetched job list instead.
+        const stateByJobId = new Map((jobs ?? []).map((j) => [j.job_id, j.state]));
+        const entries: JobTimingEntry[] = jobTimings.flatMap((job): JobTimingEntry[] => {
+          const state = stateByJobId.get(job.job_id) ?? 'Pending';
+          if (job.attempts.length === 0) {
+            return [{ job_id: job.job_id, attempt_id: null, start_time: null, end_time: null, reason: null, state }];
+          }
+          return job.attempts.map((a) => ({
+            job_id: job.job_id,
+            attempt_id: a.attempt_id,
+            start_time: a.start_time,
+            end_time: a.end_time,
+            reason: a.reason,
+            state,
+          }));
+        });
         setTiming(entries);
       })
       .catch((e: unknown) => {
         timingFetchStarted.current = false; // allow a retry
         setTimingError(e instanceof Error ? e.message : String(e));
       });
-  }, [batchBaseUrl, batchId]);
+  }, [batchBaseUrl, batchId, jobs]);
 
   const getJobs = useCallback(
     (parentJobGroupId: number): JobListEntry[] => (jobs ?? []).filter((j) => j.job_group_id === parentJobGroupId),
