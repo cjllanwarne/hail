@@ -594,7 +594,12 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
               ) : timing === undefined ? (
                 <p className="text-sm text-zinc-500">Loading timing&hellip;</p>
               ) : (
-                <JobTimingChart timing={timing} />
+                <JobTimingChart
+                  timing={timing}
+                  jobs={batchData.jobs}
+                  batchBaseUrl={batchBaseUrl}
+                  batchId={pr.batch.id}
+                />
               )}
             </div>
           </div>
