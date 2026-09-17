@@ -7,7 +7,7 @@ import { BatchStateIcon } from '../shared/BatchStateIcon';
 import { useTip, FloatingTip } from '../shared/useTip';
 import { AutoRefreshBar } from '../shared/AutoRefreshBar';
 import { JobGroupTree } from './components/JobGroupTree';
-import { JobTimingChart } from './components/JobTimingChart';
+import { JobTimingChart } from '../batch/components/JobTimingChart';
 import { JobList } from './components/JobList';
 import type { JobState, JobListEntry } from './components/JobList';
 import { useBatchData } from '../batch/components/useBatchData';

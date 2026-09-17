@@ -10,7 +10,7 @@ import {
   TooltipContentProps,
 } from 'recharts';
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent';
-import type { JobListEntry, JobState, JobTimingEntry } from '../../batch/components/useBatchData';
+import type { JobListEntry, JobState, JobTimingEntry } from './useBatchData';
 
 // The batch-timing API joins the *job's* current/final state onto every attempt row (there's no
 // per-attempt success/failure column in the DB — see attempts table schema), which is only
