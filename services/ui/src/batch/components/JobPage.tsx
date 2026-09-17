@@ -213,14 +213,6 @@ export function JobPage({ basePath, batchId, jobId }: Props): JSX.Element {
           Job {jobId}{job.attributes?.name ? <span className="text-zinc-400"> ({job.attributes.name})</span> : null}
         </span>
       </nav>
-      <div className="mt-1 text-sm">
-        <button
-          onClick={() => { document.cookie = 'hail_react_ui=; max-age=0; path=/; SameSite=Lax'; location.reload(); }}
-          className="text-sky-600 hover:underline cursor-pointer"
-        >
-          Back to classic layout
-        </button>
-      </div>
 
       {/* Top section: metadata + Gantt */}
       <div className="flex flex-wrap justify-between items-start pt-6 gap-4">
