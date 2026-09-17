@@ -11,7 +11,7 @@ import { JobTimingChart } from '../batch/components/JobTimingChart';
 import { JobGraphView } from '../batch/components/JobGraphView';
 import { JobList } from './components/JobList';
 import type { JobState, JobListEntry } from './components/JobList';
-import { useBatchData } from '../batch/components/useBatchData';
+import { useBatchData, JOB_STATE_PRIORITY } from '../batch/components/useBatchData';
 import type { UseBatchDataResult } from '../batch/components/useBatchData';
 
 const REFRESH_INTERVAL_MS = 30_000;
@@ -67,10 +67,8 @@ function isActivePr(pr: WatchedBranchPr): boolean {
   return pr.review_approved !== undefined;
 }
 
-const JOB_STATE_ORDER: JobState[] = ['Failed', 'Error', 'Cancelled', 'Running', 'Pending', 'Ready', 'Creating', 'Success'];
-
 function bucketJobs(jobs: JobListEntry[]): Record<JobState, JobListEntry[]> {
-  const buckets = Object.fromEntries(JOB_STATE_ORDER.map((s) => [s, [] as JobListEntry[]])) as Record<JobState, JobListEntry[]>;
+  const buckets = Object.fromEntries(JOB_STATE_PRIORITY.map((s) => [s, [] as JobListEntry[]])) as Record<JobState, JobListEntry[]>;
   for (const job of jobs) {
     buckets[job.state]?.push(job);
   }
@@ -623,6 +621,8 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
                   jobGraph={jobGraph}
                   batchBaseUrl={batchBaseUrl}
                   batchId={pr.batch.id}
+                  getJobGroups={batchData.getJobGroups}
+                  fetchJobGroups={batchData.fetchJobGroups}
                 />
               )}
             </div>

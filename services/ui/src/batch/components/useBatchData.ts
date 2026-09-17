@@ -10,6 +10,11 @@ import { hailApiFetch as apiFetch } from '../../shared/hailApiFetch';
 
 export type JobState = 'Pending' | 'Ready' | 'Creating' | 'Running' | 'Failed' | 'Cancelled' | 'Error' | 'Success';
 
+// Worst-state-first ordering, shared by any UI that buckets or aggregates jobs by state — the CI
+// PR page's job-state buckets and the batch job graph's job-group aggregate coloring both want "if
+// any member job is in a worse state, show that" semantics.
+export const JOB_STATE_PRIORITY: JobState[] = ['Failed', 'Error', 'Cancelled', 'Running', 'Pending', 'Ready', 'Creating', 'Success'];
+
 export interface JobListEntry {
   job_id: number;
   job_group_id: number;
@@ -107,6 +112,9 @@ async function fetchAllJobs(batchBaseUrl: string, batchId: number): Promise<JobL
   let lastId: number | undefined;
   for (;;) {
     const url = new URL(`${batchBaseUrl}/api/v1alpha/batches/${batchId}/jobs`, window.location.origin);
+    // Without this, the endpoint only returns jobs directly in the root job group — it doesn't
+    // default to recursive despite what dev-docs used to claim.
+    url.searchParams.set('recursive', 'true');
     if (lastId !== undefined) url.searchParams.set('last_job_id', String(lastId));
     const page = await apiFetch<{ jobs: JobListEntry[]; last_job_id?: number }>(url.toString());
     all.push(...page.jobs);

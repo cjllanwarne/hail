@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DagGraph } from '../../shared/DagGraph';
 import type { DagNode, DagEdge } from '../../shared/DagGraph';
-import type { JobGraphEntry, JobListEntry, JobState } from './useBatchData';
+import { ROOT_JOB_GROUP_ID, JOB_STATE_PRIORITY } from './useBatchData';
+import type { JobGraphEntry, JobGroupSummary, JobListEntry, JobState } from './useBatchData';
 
 // Matches the state colors used by JobTimingChart's OUTCOME_COLORS and the batch-status
 // SegmentedBar in pr.tsx (as hex, since SVG/inline-style `background` doesn't take Tailwind
@@ -22,6 +23,10 @@ interface Props {
   jobGraph: JobGraphEntry[];
   batchBaseUrl: string;
   batchId: number;
+  // For labeling collapsed group nodes with their real name (attributes.name) instead of a bare
+  // id — only covers groups directly under root, matching the one-level collapse below.
+  getJobGroups: (parentJobGroupId: number) => JobGroupSummary[] | undefined;
+  fetchJobGroups: (parentJobGroupId: number) => void;
 }
 
 // Beyond a few hundred nodes, rendering one DOM node per job (xyflow doesn't virtualize) gets
@@ -32,32 +37,95 @@ interface Props {
 // fix for CI-scale builds, not a higher cap here.
 const MAX_RENDERABLE_NODES = 500;
 
+const GROUP_NODE_PREFIX = 'group-';
+
 function jobLabel(job_id: number, jobNameById: Map<number, string | null>): string {
   return jobNameById.get(job_id) ?? `Job ${job_id}`;
 }
 
-// Raw per-job dependency graph — one node per job (not aggregated by name/step), since collapsing
-// splits/cleanup/log jobs into step-level nodes is a CI-specific concern that doesn't belong in
-// this generic Batch component (see personal-rfcs/react-dag-viewer-rfc.md section 5 for the
-// aggregation design this deliberately leaves out of a first version).
-export function JobGraphView({ jobs, jobGraph, batchBaseUrl, batchId }: Props): JSX.Element {
+// A job outside the root job group collapses into one node per job_group_id — jobs directly in
+// the root group (the common case for a batch with no explicit job-group structure) stay as
+// individual nodes. This only collapses by a job's *direct* group, not the full group hierarchy
+// (nested sub-groups each get their own node) — building a true multi-level collapse would need
+// the job-group tree fetched via fetchJobGroups, which isn't required just to cut clutter from the
+// common one-level case.
+function collapsedNodeId(job: JobListEntry | undefined, jobId: number): string {
+  if (!job || job.job_group_id === ROOT_JOB_GROUP_ID) return String(jobId);
+  return `${GROUP_NODE_PREFIX}${job.job_group_id}`;
+}
+
+function buildGraph(
+  jobGraph: JobGraphEntry[],
+  jobById: Map<number, JobListEntry>,
+  jobNameById: Map<number, string | null>,
+  jobStateById: Map<number, JobState>,
+  groupNameById: Map<number, string | undefined>,
+  collapseGroups: boolean,
+): { nodes: DagNode[]; edges: DagEdge[] } {
+  const nodeId = (jobId: number): string => (collapseGroups ? collapsedNodeId(jobById.get(jobId), jobId) : String(jobId));
+
+  const groupMembers = new Map<string, number[]>();
+  for (const entry of jobGraph) {
+    const id = nodeId(entry.job_id);
+    const members = groupMembers.get(id);
+    if (members) members.push(entry.job_id);
+    else groupMembers.set(id, [entry.job_id]);
+  }
+
+  const nodes: DagNode[] = [...groupMembers.entries()].map(([id, jobIds]) => {
+    if (!id.startsWith(GROUP_NODE_PREFIX)) {
+      const jobId = jobIds[0];
+      return { id, label: jobLabel(jobId, jobNameById), color: JOB_STATE_COLORS[jobStateById.get(jobId) ?? 'Pending'] };
+    }
+    const states = jobIds.map((jobId) => jobStateById.get(jobId) ?? 'Pending');
+    const worstState = JOB_STATE_PRIORITY.find((s) => states.includes(s)) ?? 'Pending';
+    const groupId = id.slice(GROUP_NODE_PREFIX.length);
+    const name = groupNameById.get(Number(groupId)) ?? `Job Group ${groupId}`;
+    return { id, label: `${name} (${jobIds.length} jobs)`, color: JOB_STATE_COLORS[worstState], weight: jobIds.length };
+  });
+
+  const edgeKeys = new Set<string>();
+  const edges: DagEdge[] = [];
+  for (const entry of jobGraph) {
+    const target = nodeId(entry.job_id);
+    for (const parentId of entry.parent_ids) {
+      const source = nodeId(parentId);
+      if (source === target) continue; // dropped: parent and child collapsed into the same group
+      const key = `${source}->${target}`;
+      if (edgeKeys.has(key)) continue;
+      edgeKeys.add(key);
+      edges.push({ source, target });
+    }
+  }
+
+  return { nodes, edges };
+}
+
+// Raw per-job dependency graph, optionally collapsed by job group — collapsing by *name/step*
+// (CI's build.yaml step boundaries) is a CI-specific concern left out of this generic Batch
+// component (see personal-rfcs/react-dag-viewer-rfc.md section 5); collapsing by job group is a
+// generic Batch concept every host already has for free from useBatchData.
+export function JobGraphView({ jobs, jobGraph, batchBaseUrl, batchId, getJobGroups, fetchJobGroups }: Props): JSX.Element {
+  const jobById = useMemo(() => new Map((jobs ?? []).map((j) => [j.job_id, j])), [jobs]);
   const jobNameById = useMemo(() => new Map((jobs ?? []).map((j) => [j.job_id, j.name])), [jobs]);
   const jobStateById = useMemo(() => new Map((jobs ?? []).map((j) => [j.job_id, j.state])), [jobs]);
+  const hasJobGroups = useMemo(() => (jobs ?? []).some((j) => j.job_group_id !== ROOT_JOB_GROUP_ID), [jobs]);
 
-  const nodes: DagNode[] = useMemo(
-    () =>
-      jobGraph.map((entry) => ({
-        id: String(entry.job_id),
-        label: jobLabel(entry.job_id, jobNameById),
-        color: JOB_STATE_COLORS[jobStateById.get(entry.job_id) ?? 'Pending'],
-      })),
-    [jobGraph, jobNameById, jobStateById],
+  useEffect(() => {
+    fetchJobGroups(ROOT_JOB_GROUP_ID);
+  }, [fetchJobGroups]);
+  const rootGroups = getJobGroups(ROOT_JOB_GROUP_ID);
+  const groupNameById = useMemo(
+    () => new Map((rootGroups ?? []).map((g) => [g.job_group_id, g.attributes?.name])),
+    [rootGroups],
   );
 
-  const edges: DagEdge[] = useMemo(
-    () =>
-      jobGraph.flatMap((entry) => entry.parent_ids.map((parentId) => ({ source: String(parentId), target: String(entry.job_id) }))),
-    [jobGraph],
+  const [collapseGroups, setCollapseGroups] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+
+  const { nodes, edges } = useMemo(
+    () => buildGraph(jobGraph, jobById, jobNameById, jobStateById, groupNameById, collapseGroups && hasJobGroups),
+    [jobGraph, jobById, jobNameById, jobStateById, groupNameById, collapseGroups, hasJobGroups],
   );
 
   if (nodes.length === 0) {
@@ -67,19 +135,59 @@ export function JobGraphView({ jobs, jobGraph, batchBaseUrl, batchId }: Props): 
   if (nodes.length > MAX_RENDERABLE_NODES) {
     return (
       <p className="text-sm text-amber-700">
-        This batch has {nodes.length} jobs — too many to render as a graph without freezing the page. Use the Job
-        Groups or Job List tabs instead.
+        This batch has {nodes.length} {collapseGroups && hasJobGroups ? 'nodes' : 'jobs'} — too many to render as a
+        graph without freezing the page. Use the Job Groups or Job List tabs instead.
       </p>
     );
   }
 
+  const handleNodeClick = (id: string): void => {
+    if (id.startsWith(GROUP_NODE_PREFIX)) return; // no single job page to open for a collapsed group
+    window.open(`${batchBaseUrl}/batches/${batchId}/jobs/${id}`, '_blank');
+  };
+
   return (
-    <div style={{ height: 600 }} className="border border-zinc-200 rounded">
-      <DagGraph
-        nodes={nodes}
-        edges={edges}
-        onNodeClick={(id) => window.open(`${batchBaseUrl}/batches/${batchId}/jobs/${id}`, '_blank')}
-      />
+    <div>
+      <div className="flex justify-between items-center mb-1">
+        {hasJobGroups ? (
+          <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+            <input type="checkbox" checked={collapseGroups} onChange={(e) => setCollapseGroups(e.target.checked)} />
+            Collapse job groups
+          </label>
+        ) : (
+          <span />
+        )}
+        <button type="button" className="text-xs text-sky-600 hover:underline" onClick={() => setExpanded(true)}>
+          Expand
+        </button>
+      </div>
+      <div style={{ height: 600 }} className="border border-zinc-200 rounded">
+        <DagGraph nodes={nodes} edges={edges} onNodeClick={handleNodeClick} />
+      </div>
+
+      {expanded && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded shadow-lg w-full h-full max-w-[95vw] p-4 flex flex-col">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-sm font-semibold text-zinc-600">Batch Graph</h3>
+              <div className="flex items-center gap-4">
+                {hasJobGroups && (
+                  <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+                    <input type="checkbox" checked={collapseGroups} onChange={(e) => setCollapseGroups(e.target.checked)} />
+                    Collapse job groups
+                  </label>
+                )}
+                <button type="button" className="text-xs text-sky-600 hover:underline" onClick={() => setExpanded(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 border border-zinc-200 rounded">
+              <DagGraph nodes={nodes} edges={edges} onNodeClick={handleNodeClick} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
