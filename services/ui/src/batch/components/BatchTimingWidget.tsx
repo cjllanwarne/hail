@@ -4,7 +4,7 @@ import { JobTimingChart } from './JobTimingChart';
 
 interface Props { basePath: string; batchId: number }
 
-// Standalone "Show timing" widget for the classic (Jinja2) batch-details page — mounts its own
+// Standalone "Try timing diagram" widget for the classic (Jinja2) batch-details page — mounts its own
 // useBatchData instance rather than being fed one, since the classic page doesn't have a React
 // data layer for it to plug into.
 export function BatchTimingWidget({ basePath, batchId }: Props): JSX.Element {
@@ -22,7 +22,7 @@ export function BatchTimingWidget({ basePath, batchId }: Props): JSX.Element {
         className="text-sm text-sky-600 hover:underline"
         onClick={() => { setOpen(true); fetchTiming(); }}
       >
-        Show timing
+        Try timing diagram
       </button>
     );
   }

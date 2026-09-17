@@ -134,6 +134,9 @@ function buildAttemptRows(timing: JobTimingEntry[], jobNameById: Map<number, str
 
 const ROW_HEIGHT_PX = 16;
 const MAX_CHART_HEIGHT_PX = 600;
+// A row or two doesn't leave enough room for the XAxis' own ticks/labels below the bars, so the
+// bars themselves get clipped — enforce a floor regardless of row count.
+const MIN_CHART_HEIGHT_PX = 80;
 
 interface Props {
   timing: JobTimingEntry[];
@@ -198,7 +201,7 @@ function Chart({ rows, maxHeight, batchBaseUrl, batchId }: {
     // hovering a bar near the right edge can push it just past the container and briefly summon
     // a horizontal scrollbar.
     <div className="overflow-y-auto overflow-x-hidden" style={{ maxHeight }}>
-      <ResponsiveContainer width="100%" height={Math.max(height, ROW_HEIGHT_PX * rows.length)}>
+      <ResponsiveContainer width="100%" height={Math.max(height, ROW_HEIGHT_PX * rows.length, MIN_CHART_HEIGHT_PX)}>
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
           <XAxis type="number" tickFormatter={formatSeconds} tick={{ fontSize: 10 }} />
           {/* interval={0}: Recharts' default tick-skipping to avoid overlap otherwise hides
@@ -293,7 +296,7 @@ export function JobTimingChart({ timing, jobs, batchBaseUrl, batchId }: Props): 
             <div className="flex-1 overflow-y-auto overflow-x-hidden">
               <Chart
                 rows={rows}
-                maxHeight={rows.length * ROW_HEIGHT_PX}
+                maxHeight={Math.max(rows.length * ROW_HEIGHT_PX, MIN_CHART_HEIGHT_PX)}
                 batchBaseUrl={batchBaseUrl}
                 batchId={batchId}
               />
