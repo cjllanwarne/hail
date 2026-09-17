@@ -270,13 +270,23 @@ export function JobTimingChart({ timing, jobs, batchBaseUrl, batchId }: Props): 
           <div className="bg-white rounded shadow-lg w-full h-full max-w-[95vw] p-4 flex flex-col">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-sm font-semibold text-zinc-600">Job Timing</h3>
-              <button
-                type="button"
-                className="text-xs text-sky-600 hover:underline"
-                onClick={() => setExpanded(false)}
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+                  <input
+                    type="checkbox"
+                    checked={showAttempts}
+                    onChange={(e) => setShowAttempts(e.target.checked)}
+                  />
+                  Show individual attempts
+                </label>
+                <button
+                  type="button"
+                  className="text-xs text-sky-600 hover:underline"
+                  onClick={() => setExpanded(false)}
+                >
+                  Close
+                </button>
+              </div>
             </div>
             {/* No inner cap here — the outer flex-1/overflow-y-auto div is the one scrollbar,
                 so the chart itself renders at its full (uncapped) height. */}
