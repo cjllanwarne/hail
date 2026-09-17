@@ -10,11 +10,14 @@ batch_state_indicator, job_state_indicator, danger_button, submit_button, link, 
 <script defer src="{{ base_path }}/batch/static/js/auto_refresh.js"></script>
 {% if userdata['system_permissions']['access_developer_environments'] %}
 <script type="module" src="{{ base_path }}/batch/static/compiled-js/timing.js"></script>
+<link rel="stylesheet" type="text/css" href="{{ base_path }}/batch/static/compiled-js/graph.css" />
+<script type="module" src="{{ base_path }}/batch/static/compiled-js/graph.js"></script>
 {% endif %}
 {% endblock %}
 {% block content %}
 {% if userdata['system_permissions']['access_developer_environments'] %}
 <div id="batch-timing-root" data-base-path="{{ base_path }}" data-batch-id="{{ batch['id'] }}" class='pt-4'></div>
+<div id="batch-graph-root" data-base-path="{{ base_path }}" data-batch-id="{{ batch['id'] }}" class='pt-2'></div>
 {% endif %}
 <div class='flex flex-wrap justify-around pt-8 gap-y-4'>
   <div class='drop-shadow-sm w-full md:basis-2/3 lg:basis-1/3'>

@@ -226,6 +226,20 @@ batch/batch/front_end/static/compiled-js/job.js: services/ui/dist/.built
 
 batch-image: batch/batch/front_end/static/compiled-js/job.js
 
+# batch.html references timing.js unconditionally (gated by a permission check, not by whether
+# the file exists) — without a copy target it 404s in a real deployment.
+batch/batch/front_end/static/compiled-js/timing.js: services/ui/dist/.built
+	mkdir -p $(@D)
+	cp services/ui/dist/batch/timing.js $@
+
+batch-image: batch/batch/front_end/static/compiled-js/timing.js
+
+batch/batch/front_end/static/compiled-js/graph.js batch/batch/front_end/static/compiled-js/graph.css: services/ui/dist/.built
+	mkdir -p $(@D)
+	cp services/ui/dist/batch/graph.js services/ui/dist/batch/graph.css $(@D)/
+
+batch-image: batch/batch/front_end/static/compiled-js/graph.js
+
 batch/batch/driver/static/compiled-js/index.js: services/ui/dist/.built
 	mkdir -p $(@D)
 	cp services/ui/dist/batch_driver/index.js $@
@@ -335,6 +349,8 @@ tailwind-compile-watch:
 run-dev-proxy: ci/ci/static/compiled-js/flaky_tests.js \
     ci/ci/static/compiled-js/pr.js \
     batch/batch/front_end/static/compiled-js/job.js \
+    batch/batch/front_end/static/compiled-js/timing.js \
+    batch/batch/front_end/static/compiled-js/graph.js \
     batch/batch/driver/static/compiled-js/index.js \
     monitoring/monitoring/static/compiled-js/index.js \
     auth/auth/static/compiled-js/index.js \
@@ -342,7 +358,7 @@ run-dev-proxy: ci/ci/static/compiled-js/flaky_tests.js \
     ci/ci/static/compiled-js/swagger.js \
     monitoring/monitoring/static/compiled-js/swagger.js \
     auth/auth/static/compiled-js/swagger.js
-DEVSERVER_TARGETS = tailwind-compile-watch run-dev-proxy ui-js-watch ui-js-watch-pr ui-js-watch-batch ui-js-watch-batch-timing ui-js-watch-batch-driver ui-js-watch-monitoring ui-js-watch-auth ui-js-watch-swagger
+DEVSERVER_TARGETS = tailwind-compile-watch run-dev-proxy ui-js-watch ui-js-watch-pr ui-js-watch-batch ui-js-watch-batch-timing ui-js-watch-batch-graph ui-js-watch-batch-driver ui-js-watch-monitoring ui-js-watch-auth ui-js-watch-swagger
 
 .PHONY: run-dev-proxy
 run-dev-proxy:
@@ -366,6 +382,10 @@ ui-js-watch-batch: services/ui/node_modules/.package-lock.json
 .PHONY: ui-js-watch-batch-timing
 ui-js-watch-batch-timing: services/ui/node_modules/.package-lock.json
 	cd services/ui && npx esbuild src/batch/timing.tsx --bundle --jsx=automatic --format=esm --outfile=../../batch/batch/front_end/static/compiled-js/timing.js --minify --watch=forever
+
+.PHONY: ui-js-watch-batch-graph
+ui-js-watch-batch-graph: services/ui/node_modules/.package-lock.json
+	cd services/ui && npx esbuild src/batch/graph.tsx --bundle --jsx=automatic --format=esm --outfile=../../batch/batch/front_end/static/compiled-js/graph.js --minify --watch=forever
 
 .PHONY: ui-js-watch-batch-driver
 ui-js-watch-batch-driver: services/ui/node_modules/.package-lock.json
