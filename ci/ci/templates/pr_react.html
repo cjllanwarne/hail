@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block title %}PR #{{ pr_number }}{% endblock %}
 {% block head %}
+<link rel="stylesheet" type="text/css" href="{{ base_path }}/ci/static/compiled-js/pr.css" />
 <script type="module" src="{{ base_path }}/ci/static/compiled-js/pr.js"></script>
 {% endblock %}
 {% block content %}

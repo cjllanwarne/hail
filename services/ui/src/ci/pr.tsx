@@ -8,6 +8,7 @@ import { useTip, FloatingTip } from '../shared/useTip';
 import { AutoRefreshBar } from '../shared/AutoRefreshBar';
 import { JobGroupTree } from './components/JobGroupTree';
 import { JobTimingChart } from '../batch/components/JobTimingChart';
+import { JobGraphView } from '../batch/components/JobGraphView';
 import { JobList } from './components/JobList';
 import type { JobState, JobListEntry } from './components/JobList';
 import { useBatchData } from '../batch/components/useBatchData';
@@ -446,8 +447,8 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
   const missingFields = missingActivePrFields(pr);
   const warning = <MissingApiFieldsWarning fields={missingFields} />;
   const [tip, onTipEnter, onTipLeave] = useTip();
-  const [jobsTab, setJobsTab] = useState<'list' | 'groups' | 'timing'>('list');
-  const { batchStatus, jobs, jobsError, timing, timingError, fetchTiming } = batchData;
+  const [jobsTab, setJobsTab] = useState<'list' | 'groups' | 'timing' | 'graph'>('list');
+  const { batchStatus, jobs, jobsError, timing, timingError, fetchTiming, jobGraph, jobGraphError, fetchJobGraph } = batchData;
 
   if (pr.batch) {
     const jobBuckets = jobs ? bucketJobs(jobs) : null;
@@ -559,6 +560,15 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
               >
                 Timing
               </button>
+              <button
+                type="button"
+                onClick={() => { setJobsTab('graph'); fetchJobGraph(); }}
+                className={`pb-1.5 -mb-px border-b-2 cursor-pointer ${
+                  jobsTab === 'graph' ? 'border-sky-600 text-sky-700 font-medium' : 'border-transparent text-zinc-500 hover:text-zinc-700'
+                }`}
+              >
+                Batch Graph
+              </button>
             </div>
 
             {/* Both tabs stay mounted (hidden via CSS, not conditionally rendered) so switching
@@ -597,6 +607,20 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
                 <JobTimingChart
                   timing={timing}
                   jobs={batchData.jobs}
+                  batchBaseUrl={batchBaseUrl}
+                  batchId={pr.batch.id}
+                />
+              )}
+            </div>
+            <div className="p-3" hidden={jobsTab !== 'graph'}>
+              {jobGraphError ? (
+                <p className="text-sm text-red-600">{jobGraphError}</p>
+              ) : jobGraph === undefined ? (
+                <p className="text-sm text-zinc-500">Loading job graph&hellip;</p>
+              ) : (
+                <JobGraphView
+                  jobs={batchData.jobs}
+                  jobGraph={jobGraph}
                   batchBaseUrl={batchBaseUrl}
                   batchId={pr.batch.id}
                 />

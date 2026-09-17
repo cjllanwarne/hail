@@ -70,6 +70,19 @@ interface GetBatchTimingResponse {
   pagination: JobOffsetPagination;
 }
 
+// Mirrors JobGraphEntryV1Alpha (hailtop/batch_client/types.py) — one entry per job, with the ids
+// of its direct parents (empty for a job with no parents). Job metadata (name, state) is not
+// included here by design; join client-side against the already-fetched job list by job_id.
+export interface JobGraphEntry {
+  job_id: number;
+  parent_ids: number[];
+}
+
+interface GetJobGraphResponse {
+  data: JobGraphEntry[];
+  pagination: JobOffsetPagination;
+}
+
 export interface BatchStatus {
   id: number;
   state: string;
@@ -131,6 +144,24 @@ async function fetchAllTiming(batchBaseUrl: string, batchId: number): Promise<Jo
   return all;
 }
 
+async function fetchAllJobGraph(batchBaseUrl: string, batchId: number): Promise<JobGraphEntry[]> {
+  const all: JobGraphEntry[] = [];
+  let jobOffset: number | undefined;
+  for (;;) {
+    const url = new URL(`${batchBaseUrl}/api/v1alpha/batches/${batchId}/job_graph`, window.location.origin);
+    if (jobOffset !== undefined) url.searchParams.set('job_offset', String(jobOffset));
+    // page_size defaults to 50 server-side (matches /timing's DEFAULT_JOB_OFFSET_PAGE_SIZE) — set
+    // it to the server's max (1000) explicitly so fetching a whole batch's graph doesn't take
+    // dozens of round trips for CI's largest builds (~thousands of jobs).
+    url.searchParams.set('page_size', '1000');
+    const page = await apiFetch<GetJobGraphResponse>(url.toString());
+    all.push(...page.data);
+    if (page.pagination.next_page_job_offset === null) break;
+    jobOffset = page.pagination.next_page_job_offset;
+  }
+  return all;
+}
+
 export interface UseBatchDataResult {
   batchStatus: BatchStatus | null;
   jobs: JobListEntry[] | null;
@@ -164,6 +195,15 @@ export interface UseBatchDataResult {
   // mounted. Safe to call repeatedly: a no-op while in flight or after success. A failed fetch is
   // not cached, so a later call retries.
   fetchTiming: () => void;
+  // Parent-id edges for every job in the batch, for a dependency-DAG viewer. Whole batch only for
+  // now (not scoped to a job group) — undefined until fetchJobGraph() has been called and
+  // resolved at least once.
+  jobGraph: JobGraphEntry[] | undefined;
+  jobGraphError: string | undefined;
+  // Fetches (once) and caches the batch-wide job graph, for as long as this hook instance stays
+  // mounted. Safe to call repeatedly: a no-op while in flight or after success. A failed fetch is
+  // not cached, so a later call retries.
+  fetchJobGraph: () => void;
 }
 
 export function useBatchData(batchBaseUrl: string, batchId: number | undefined): UseBatchDataResult {
@@ -182,6 +222,10 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
   const [timing, setTiming] = useState<JobTimingEntry[] | undefined>(undefined);
   const [timingError, setTimingError] = useState<string | undefined>(undefined);
   const timingFetchStarted = useRef(false);
+
+  const [jobGraph, setJobGraph] = useState<JobGraphEntry[] | undefined>(undefined);
+  const [jobGraphError, setJobGraphError] = useState<string | undefined>(undefined);
+  const jobGraphFetchStarted = useRef(false);
 
   const refresh = useCallback(async (isRefresh: boolean) => {
     if (batchId === undefined) return;
@@ -246,6 +290,20 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
       });
   }, [batchBaseUrl, batchId, jobs]);
 
+  const fetchJobGraph = useCallback(() => {
+    if (batchId === undefined) return;
+    if (jobGraphFetchStarted.current) return;
+    jobGraphFetchStarted.current = true;
+    fetchAllJobGraph(batchBaseUrl, batchId)
+      .then((entries) => {
+        setJobGraph(entries);
+      })
+      .catch((e: unknown) => {
+        jobGraphFetchStarted.current = false; // allow a retry
+        setJobGraphError(e instanceof Error ? e.message : String(e));
+      });
+  }, [batchBaseUrl, batchId]);
+
   const getJobs = useCallback(
     (parentJobGroupId: number): JobListEntry[] => (jobs ?? []).filter((j) => j.job_group_id === parentJobGroupId),
     [jobs],
@@ -287,5 +345,8 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
     timing,
     timingError,
     fetchTiming,
+    jobGraph,
+    jobGraphError,
+    fetchJobGraph,
   };
 }

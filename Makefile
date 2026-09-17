@@ -214,9 +214,9 @@ ci/ci/static/compiled-js/flaky_tests.js: services/ui/dist/.built
 
 ci-image: ci/ci/static/compiled-js/flaky_tests.js
 
-ci/ci/static/compiled-js/pr.js: services/ui/dist/.built
+ci/ci/static/compiled-js/pr.js ci/ci/static/compiled-js/pr.css: services/ui/dist/.built
 	mkdir -p $(@D)
-	cp services/ui/dist/ci/pr.js $@
+	cp services/ui/dist/ci/pr.js services/ui/dist/ci/pr.css $(@D)/
 
 ci-image: ci/ci/static/compiled-js/pr.js
 
