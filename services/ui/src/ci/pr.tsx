@@ -619,10 +619,12 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
                 <JobGraphView
                   jobs={batchData.jobs}
                   jobGraph={jobGraph}
+                  jobGroupTree={batchData.jobGroupTree}
+                  jobGroupTreeError={batchData.jobGroupTreeError}
+                  fetchJobGroupTree={batchData.fetchJobGroupTree}
                   batchBaseUrl={batchBaseUrl}
                   batchId={pr.batch.id}
-                  getJobGroups={batchData.getJobGroups}
-                  fetchJobGroups={batchData.fetchJobGroups}
+                  batchName={batchData.batchStatus?.attributes?.name}
                 />
               )}
             </div>

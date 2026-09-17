@@ -88,6 +88,13 @@ interface GetJobGraphResponse {
   pagination: JobOffsetPagination;
 }
 
+// A JobGroupSummary plus the parent id it was fetched under — the API itself never returns a
+// group's parent (see the JobGroupSummary comment above), so this is only knowable by the BFS walk
+// that builds the full tree below.
+export interface JobGroupNode extends JobGroupSummary {
+  parent_job_group_id: number;
+}
+
 export interface BatchStatus {
   id: number;
   state: string;
@@ -134,6 +141,23 @@ async function fetchJobGroups(batchBaseUrl: string, batchId: number, parentJobGr
     all.push(...page.job_groups);
     if (page.last_job_group_id === undefined) break;
     lastId = page.last_job_group_id;
+  }
+  return all;
+}
+
+// Walks the whole job-group tree (every group under root, recursively), not just one level — for
+// the batch graph's group drill-down, which needs the full tree up front rather than fetching a
+// level at a time as the user expands rows.
+async function fetchJobGroupTree(batchBaseUrl: string, batchId: number): Promise<JobGroupNode[]> {
+  const all: JobGroupNode[] = [];
+  const queue: number[] = [ROOT_JOB_GROUP_ID];
+  while (queue.length > 0) {
+    const parentId = queue.shift() as number;
+    const children = await fetchJobGroups(batchBaseUrl, batchId, parentId);
+    for (const child of children) {
+      all.push({ ...child, parent_job_group_id: parentId });
+      queue.push(child.job_group_id);
+    }
   }
   return all;
 }
@@ -212,6 +236,12 @@ export interface UseBatchDataResult {
   // mounted. Safe to call repeatedly: a no-op while in flight or after success. A failed fetch is
   // not cached, so a later call retries.
   fetchJobGraph: () => void;
+  // Every non-root job group in the batch, flattened with parent pointers — undefined until
+  // fetchJobGroupTree() has resolved. Powers the batch graph's group drill-down, where switching
+  // the selected group needs to be a cheap lookup rather than a fresh fetch.
+  jobGroupTree: JobGroupNode[] | undefined;
+  jobGroupTreeError: string | undefined;
+  fetchJobGroupTree: () => void;
 }
 
 export function useBatchData(batchBaseUrl: string, batchId: number | undefined): UseBatchDataResult {
@@ -234,6 +264,10 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
   const [jobGraph, setJobGraph] = useState<JobGraphEntry[] | undefined>(undefined);
   const [jobGraphError, setJobGraphError] = useState<string | undefined>(undefined);
   const jobGraphFetchStarted = useRef(false);
+
+  const [jobGroupTree, setJobGroupTree] = useState<JobGroupNode[] | undefined>(undefined);
+  const [jobGroupTreeError, setJobGroupTreeError] = useState<string | undefined>(undefined);
+  const jobGroupTreeFetchStarted = useRef(false);
 
   const refresh = useCallback(async (isRefresh: boolean) => {
     if (batchId === undefined) return;
@@ -312,6 +346,20 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
       });
   }, [batchBaseUrl, batchId]);
 
+  const fetchJobGroupTreeCallback = useCallback(() => {
+    if (batchId === undefined) return;
+    if (jobGroupTreeFetchStarted.current) return;
+    jobGroupTreeFetchStarted.current = true;
+    fetchJobGroupTree(batchBaseUrl, batchId)
+      .then((tree) => {
+        setJobGroupTree(tree);
+      })
+      .catch((e: unknown) => {
+        jobGroupTreeFetchStarted.current = false; // allow a retry
+        setJobGroupTreeError(e instanceof Error ? e.message : String(e));
+      });
+  }, [batchBaseUrl, batchId]);
+
   const getJobs = useCallback(
     (parentJobGroupId: number): JobListEntry[] => (jobs ?? []).filter((j) => j.job_group_id === parentJobGroupId),
     [jobs],
@@ -356,5 +404,8 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
     jobGraph,
     jobGraphError,
     fetchJobGraph,
+    jobGroupTree,
+    jobGroupTreeError,
+    fetchJobGroupTree: fetchJobGroupTreeCallback,
   };
 }
