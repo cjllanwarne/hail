@@ -761,15 +761,12 @@ function PrPage({ basePath, batchBaseUrl, wbIndex, prNumber }: {
   }, []);
 
   const batchId = pr?.batch?.id;
-  // All batch/job/job-group fetching, caching, and derived state (see [[useBatchData]]) — this
-  // page only owns auto-refresh *policy* (the toggle, the interval, the countdown UI) on top.
   const batchData = useBatchData(batchBaseUrl, batchId);
   const { batchStatus, refresh: refreshBuild } = batchData;
 
   useEffect(() => { void refreshBuild(false); }, [refreshBuild]);
 
-  // Bump whenever a refresh actually lands (jobs is replaced with a new array reference on
-  // every successful refresh), to restart the AutoRefreshBar's countdown animation.
+  // Restart the countdown animation whenever a refresh actually lands (jobs gets a new array reference).
   useEffect(() => { setCountdownKey((k) => k + 1); }, [batchData.jobs]);
 
   // Keep polling only while the current batch hasn't finished.

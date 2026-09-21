@@ -30,11 +30,7 @@ function JobGroupRow({ batchBaseUrl, batchId, summary, batchData }: {
 }): JSX.Element {
   const childGroups = batchData.getJobGroups(summary.job_group_id);
   const error = batchData.getJobGroupsError(summary.job_group_id);
-  // Already fully known client-side (getJobs filters the already-fetched recursive job list) —
-  // doesn't need to wait on whether this group *has* sub-groups, which is the only part that
-  // genuinely requires a network round trip. Rendering it unconditionally, rather than gated
-  // behind childGroups resolving, avoids an artificial "Loading…" for data that was never
-  // actually loading.
+  // Doesn't wait on childGroups resolving — getJobs is a synchronous filter, not a fetch.
   const ownJobs = batchData.getJobs(summary.job_group_id);
 
   return (
@@ -74,14 +70,7 @@ function JobGroupRow({ batchBaseUrl, batchId, summary, batchData }: {
   );
 }
 
-// Generic job-group hierarchy viewer: nests recursively via job-groups/{id}/job-groups, lazily
-// fetching a row's children only on its first expand (via CollapsibleItem's onExpand). All
-// fetching, caching, and the "already-fetched jobs, filtered client-side" trick live in
-// useBatchData (services/ui/src/batch/components/useBatchData.ts), keyed by job_group_id rather
-// than tied to any one row's mount lifecycle — so the cache survives a row unmounting/
-// remounting, not just staying mounted-but-collapsed. Works against any batch, CI or otherwise —
-// CI's own build batches don't currently nest job groups, so this renders as a single root row
-// against them today, but the component makes no CI-specific assumptions.
+// Generic job-group hierarchy viewer, not CI-specific; fetching/caching lives in useBatchData.
 export function JobGroupTree({ batchBaseUrl, batchId, batchData }: {
   batchBaseUrl: string;
   batchId: number;

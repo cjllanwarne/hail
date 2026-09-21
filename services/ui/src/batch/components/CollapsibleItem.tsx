@@ -6,11 +6,8 @@ export function CollapsibleItem({ title, summary, children, startOpen = false, o
   summary?: ReactNode;
   children: ReactNode;
   startOpen?: boolean;
-  // Fires on every closed→open transition (not on close, and not while already open — e.g. a
-  // re-render). If the caller wants a lazy fetch that only ever runs once, it must track that
-  // itself (e.g. skip if already fetched/in flight) — `children` itself still unmounts on
-  // collapse, so any state a fetch result needs to survive across toggles must live in the
-  // caller, not in a component nested inside `children`.
+  // Fires on each closed→open transition; caller must dedupe if it only wants to act once,
+  // since `children` unmounts on collapse and can't hold that state itself.
   onExpand?: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(startOpen);

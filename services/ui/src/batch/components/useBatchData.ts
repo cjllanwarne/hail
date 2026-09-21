@@ -1,12 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { hailApiFetch as apiFetch } from '../../shared/hailApiFetch';
 
-// Generic Batch-domain data for a single batch: its own status, its full (recursive) job list,
-// and its job-group hierarchy. Deliberately has no CI-specific (or any other service-specific)
-// knowledge — any page showing a batch's jobs/job-groups (the CI PR page today, a future React
-// batch-details page tomorrow) should use this instead of writing its own fetch/cache logic.
-// See dev-docs/services/ui/README.md's "Data fetching for a batch" section for the pattern this
-// is meant to establish.
+// Generic (non-CI-specific) fetching/caching of a batch's status, full job list, and job-group
+// hierarchy. See dev-docs/services/ui/README.md's "Data fetching for a batch" section.
 
 export type JobState = 'Pending' | 'Ready' | 'Creating' | 'Running' | 'Failed' | 'Cancelled' | 'Error' | 'Success';
 
@@ -18,11 +14,9 @@ export interface JobListEntry {
   exit_code: number | null;
 }
 
-// Mirrors job_group_record_to_dict (batch/batch/batch.py) — this is what
-// GET .../job-groups/{id} and GET .../job-groups/{id}/job-groups actually return. Note this does
-// NOT match the openapi.yaml JobGroupDetailResponse schema, which documents a `children` field
-// and a `parent_job_group_id` field that the real handler never sets — that schema is
-// aspirational/stale, not a contract the backend honors today.
+// Mirrors job_group_record_to_dict (batch/batch/batch.py), not the openapi.yaml
+// JobGroupDetailResponse schema, which documents fields (`children`, `parent_job_group_id`)
+// the real handler never sets.
 export interface JobGroupSummary {
   job_group_id: number;
   n_jobs: number;
@@ -85,24 +79,17 @@ export interface UseBatchDataResult {
   jobs: JobListEntry[] | null;
   jobsError: string | null;
   refreshing: boolean;
-  // Re-fetches batchStatus + the full job list. Call once on mount and on whatever interval/
-  // toggle drives the page's auto-refresh UI — this hook has no polling opinion of its own,
-  // since when/whether to poll is page-level UI policy, not a data-fetching concern.
+  // Re-fetches batchStatus + the full job list; caller decides when/how often to call this.
   refresh: (isRefresh: boolean) => Promise<void>;
-  // The root job group's rollup counts are the batch's own aggregate counts (root job group IS
-  // the batch, not a separate fetched entity) — derived from batchStatus, no extra request.
+  // Derived from batchStatus, not a separate fetch — the root job group's counts are the batch's own.
   rootJobGroup: JobGroupSummary | null;
-  // Jobs directly owned by a given job group — synchronous, filtered from the already-fetched
-  // recursive job list. Never triggers a request.
+  // Synchronous filter over the already-fetched job list; never triggers a request.
   getJobs: (parentJobGroupId: number) => JobListEntry[];
-  // Sub-job-groups of a given job group. Returns undefined until fetchJobGroups(parentJobGroupId)
-  // has been called and resolved at least once.
+  // undefined until fetchJobGroups(parentJobGroupId) has resolved at least once.
   getJobGroups: (parentJobGroupId: number) => JobGroupSummary[] | undefined;
   getJobGroupsError: (parentJobGroupId: number) => string | undefined;
-  // Fetches (once) and caches a job group's children, keyed by parentJobGroupId, for the
-  // lifetime of this hook instance — i.e. for as long as the page stays mounted. Safe to call
-  // repeatedly (e.g. on every row expand): a second call while a fetch is in flight or after one
-  // has already succeeded is a no-op. A failed fetch is not cached, so a later call retries.
+  // Fetches and caches a job group's children, keyed by parentJobGroupId. Idempotent: a no-op
+  // while in flight or after success; a failed fetch isn't cached, so a later call retries.
   fetchJobGroups: (parentJobGroupId: number) => void;
 }
 
@@ -114,9 +101,7 @@ export function useBatchData(batchBaseUrl: string, batchId: number | undefined):
 
   const [jobGroupsByParent, setJobGroupsByParent] = useState<Map<number, JobGroupSummary[]>>(new Map());
   const [jobGroupErrorsByParent, setJobGroupErrorsByParent] = useState<Map<number, string>>(new Map());
-  // Tracks in-flight/succeeded fetches so fetchJobGroups is idempotent without waiting for a
-  // state update to land — a ref (not state) because it's bookkeeping, not something that
-  // should itself trigger a re-render.
+  // Ref, not state: bookkeeping for fetchJobGroups's idempotency check, not render input.
   const jobGroupFetchesStarted = useRef<Set<number>>(new Set());
 
   const refresh = useCallback(async (isRefresh: boolean) => {
