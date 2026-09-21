@@ -9,8 +9,10 @@ import { AutoRefreshBar } from '../shared/AutoRefreshBar';
 import { JobGroupTree } from './components/JobGroupTree';
 import { JobList } from './components/JobList';
 import type { JobState, JobListEntry } from './components/JobList';
-import { useBatchData } from '../batch/components/useBatchData';
-import type { UseBatchDataResult } from '../batch/components/useBatchData';
+import { usePrBatchData } from '../batch/hooks/usePrBatchData';
+import type { UsePrBatchDataResult } from '../batch/hooks/usePrBatchData';
+import { useJobGroupChildren, deriveRootJobGroup } from '../batch/hooks/useJobGroupChildren';
+import type { UseJobGroupChildrenResult, JobGroupSummary } from '../batch/hooks/useJobGroupChildren';
 
 const REFRESH_INTERVAL_MS = 30_000;
 
@@ -429,13 +431,14 @@ function MissingApiFieldsWarning({ fields }: { fields: string[] }): JSX.Element 
   );
 }
 
-function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchData }: {
+function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchData, jobGroupChildren }: {
   pr: WatchedBranchPr;
   basePath: string;
   batchBaseUrl: string;
   wbBranchName: string;
   prNumber: string;
-  batchData: UseBatchDataResult;
+  batchData: UsePrBatchDataResult;
+  jobGroupChildren: UseJobGroupChildrenResult;
 }): JSX.Element {
   const [retrying, setRetrying] = useState(false);
   const [authorizing, setAuthorizing] = useState(false);
@@ -447,6 +450,7 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
   const [tip, onTipEnter, onTipLeave] = useTip();
   const [jobsTab, setJobsTab] = useState<'list' | 'groups'>('list');
   const { batchStatus, jobs, jobsError } = batchData;
+  const rootJobGroup: JobGroupSummary | null = deriveRootJobGroup(batchStatus);
 
   if (pr.batch) {
     const jobBuckets = jobs ? bucketJobs(jobs) : null;
@@ -572,8 +576,14 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
               </div>
             </div>
             <div className="p-3" hidden={jobsTab !== 'groups'}>
-              {batchData.rootJobGroup ? (
-                <JobGroupTree batchBaseUrl={batchBaseUrl} batchId={pr.batch.id} batchData={batchData} />
+              {rootJobGroup ? (
+                <JobGroupTree
+                  batchBaseUrl={batchBaseUrl}
+                  batchId={pr.batch.id}
+                  jobs={jobs}
+                  rootJobGroup={rootJobGroup}
+                  jobGroupChildren={jobGroupChildren}
+                />
               ) : (
                 <p className="text-sm text-zinc-500">Loading job groups&hellip;</p>
               )}
@@ -761,8 +771,9 @@ function PrPage({ basePath, batchBaseUrl, wbIndex, prNumber }: {
   }, []);
 
   const batchId = pr?.batch?.id;
-  const batchData = useBatchData(batchBaseUrl, batchId);
+  const batchData = usePrBatchData(batchBaseUrl, batchId);
   const { batchStatus, refresh: refreshBuild } = batchData;
+  const jobGroupChildren = useJobGroupChildren(batchBaseUrl, batchId);
 
   useEffect(() => { void refreshBuild(false); }, [refreshBuild]);
 
@@ -908,6 +919,7 @@ function PrPage({ basePath, batchBaseUrl, wbIndex, prNumber }: {
           wbBranchName={wbBranchName}
           prNumber={prNumber}
           batchData={batchData}
+          jobGroupChildren={jobGroupChildren}
         />
       )}
 

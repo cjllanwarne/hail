@@ -1,8 +1,9 @@
 import { SegmentedBar } from '../../shared/SegmentedBar';
 import type { Segment } from '../../shared/SegmentedBar';
 import { CollapsibleItem } from '../../batch/components/CollapsibleItem';
-import { ROOT_JOB_GROUP_ID } from '../../batch/components/useBatchData';
-import type { JobGroupSummary, UseBatchDataResult } from '../../batch/components/useBatchData';
+import { ROOT_JOB_GROUP_ID, getJobsInGroup } from '../../batch/hooks/useJobGroupChildren';
+import type { JobGroupSummary, UseJobGroupChildrenResult } from '../../batch/hooks/useJobGroupChildren';
+import type { JobListEntry } from '../../batch/hooks/usePrBatchData';
 import { JobList } from './JobList';
 
 export { ROOT_JOB_GROUP_ID };
@@ -22,16 +23,17 @@ function groupLabel(g: JobGroupSummary): string {
   return g.attributes?.name ?? (g.job_group_id === ROOT_JOB_GROUP_ID ? 'root' : `job group ${g.job_group_id}`);
 }
 
-function JobGroupRow({ batchBaseUrl, batchId, summary, batchData }: {
+function JobGroupRow({ batchBaseUrl, batchId, summary, jobs, jobGroupChildren }: {
   batchBaseUrl: string;
   batchId: number;
   summary: JobGroupSummary;
-  batchData: UseBatchDataResult;
+  jobs: JobListEntry[] | null;
+  jobGroupChildren: UseJobGroupChildrenResult;
 }): JSX.Element {
-  const childGroups = batchData.getJobGroups(summary.job_group_id);
-  const error = batchData.getJobGroupsError(summary.job_group_id);
-  // Doesn't wait on childGroups resolving — getJobs is a synchronous filter, not a fetch.
-  const ownJobs = batchData.getJobs(summary.job_group_id);
+  const childGroups = jobGroupChildren.getJobGroups(summary.job_group_id);
+  const error = jobGroupChildren.getJobGroupsError(summary.job_group_id);
+  // Doesn't wait on childGroups resolving — getJobsInGroup is a synchronous filter, not a fetch.
+  const ownJobs = getJobsInGroup(jobs, summary.job_group_id);
 
   return (
     <CollapsibleItem
@@ -42,7 +44,7 @@ function JobGroupRow({ batchBaseUrl, batchId, summary, batchData }: {
           <span>{summary.n_completed}/{summary.n_jobs} jobs</span>
         </div>
       }
-      onExpand={() => { batchData.fetchJobGroups(summary.job_group_id); }}
+      onExpand={() => { jobGroupChildren.fetchJobGroups(summary.job_group_id); }}
     >
       <div className="pl-4">
         {error ? (
@@ -52,7 +54,7 @@ function JobGroupRow({ batchBaseUrl, batchId, summary, batchData }: {
         ) : childGroups.length > 0 ? (
           <ul className="border-l border-zinc-200">
             {childGroups.map((child) => (
-              <JobGroupRow key={child.job_group_id} batchBaseUrl={batchBaseUrl} batchId={batchId} summary={child} batchData={batchData} />
+              <JobGroupRow key={child.job_group_id} batchBaseUrl={batchBaseUrl} batchId={batchId} summary={child} jobs={jobs} jobGroupChildren={jobGroupChildren} />
             ))}
           </ul>
         ) : (
@@ -70,16 +72,19 @@ function JobGroupRow({ batchBaseUrl, batchId, summary, batchData }: {
   );
 }
 
-// Generic job-group hierarchy viewer, not CI-specific; fetching/caching lives in useBatchData.
-export function JobGroupTree({ batchBaseUrl, batchId, batchData }: {
+// Generic job-group hierarchy viewer, not CI-specific; child-group fetching/caching lives in
+// useJobGroupChildren, everything else is derived from the already-fetched job list.
+export function JobGroupTree({ batchBaseUrl, batchId, jobs, rootJobGroup, jobGroupChildren }: {
   batchBaseUrl: string;
   batchId: number;
-  batchData: UseBatchDataResult;
+  jobs: JobListEntry[] | null;
+  rootJobGroup: JobGroupSummary | null;
+  jobGroupChildren: UseJobGroupChildrenResult;
 }): JSX.Element | null {
-  if (!batchData.rootJobGroup) return null;
+  if (!rootJobGroup) return null;
   return (
     <ul className="border border-zinc-200 rounded divide-y divide-zinc-100">
-      <JobGroupRow batchBaseUrl={batchBaseUrl} batchId={batchId} summary={batchData.rootJobGroup} batchData={batchData} />
+      <JobGroupRow batchBaseUrl={batchBaseUrl} batchId={batchId} summary={rootJobGroup} jobs={jobs} jobGroupChildren={jobGroupChildren} />
     </ul>
   );
 }
