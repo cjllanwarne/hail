@@ -530,10 +530,17 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
         )}
         {actionError && <p className="text-sm text-red-600 mt-1">{actionError}</p>}
 
-        {jobsError ? (
-          <p className="text-sm text-red-600 mt-4">{jobsError}</p>
-        ) : !jobBuckets ? (
-          <p className="text-sm text-zinc-500 mt-4">Loading jobs&hellip;</p>
+        {jobsError && (
+          jobBuckets ? (
+            <div className="mt-4 px-3 py-1.5 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded">
+              Showing previous results — last refresh failed: {jobsError}
+            </div>
+          ) : (
+            <p className="text-sm text-red-600 mt-4">{jobsError}</p>
+          )
+        )}
+        {!jobBuckets ? (
+          jobsError ? null : <p className="text-sm text-zinc-500 mt-4">Loading jobs&hellip;</p>
         ) : (
           <div className="mt-4 border border-zinc-200 rounded">
             <div className="flex gap-4 px-3 pt-2 border-b border-zinc-200 text-sm">
@@ -782,6 +789,11 @@ function PrPage({ basePath, batchBaseUrl, wbIndex, prNumber }: {
   // Restart the countdown animation whenever a refresh actually lands (jobs gets a new array reference).
   useEffect(() => { setCountdownKey((k) => k + 1); }, [batchData.jobs]);
 
+  // Don't keep silently retrying a failing poll — make the user notice and re-arm it.
+  useEffect(() => {
+    if (batchData.jobsError) setAutoRefresh(false);
+  }, [batchData.jobsError, setAutoRefresh]);
+
   // Keep polling only while the current batch hasn't finished.
   useEffect(() => {
     if (batchStatus === null || batchStatus.complete || !autoRefresh) return;
@@ -807,8 +819,10 @@ function PrPage({ basePath, batchBaseUrl, wbIndex, prNumber }: {
       setPr(await apiFetch<WatchedBranchPr>(`${basePath}/api/v1alpha/watched_branches/${encodeURIComponent(wbBranchName)}/prs/${prNumber}`));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
+      // Don't keep silently retrying a failing poll — make the user notice and re-arm it.
+      setAutoRefresh(false);
     }
-  }, [basePath, wbBranchName, prNumber]);
+  }, [basePath, wbBranchName, prNumber, setAutoRefresh]);
 
   useEffect(() => {
     if (wbBranchName === null) return;

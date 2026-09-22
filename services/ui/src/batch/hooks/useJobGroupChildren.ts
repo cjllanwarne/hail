@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { hailApiFetch as apiFetch } from '../../shared/hailApiFetch';
 import type { JobListEntry } from './jobGroupTypes';
 
@@ -82,6 +82,14 @@ export function useJobGroupChildren(batchBaseUrl: string, batchId: number | unde
   const [jobGroupErrorsByParent, setJobGroupErrorsByParent] = useState<Map<number, string>>(new Map());
   // Ref, not state: bookkeeping for fetchJobGroups's idempotency check, not render input.
   const jobGroupFetchesStarted = useRef<Set<number>>(new Set());
+
+  // Caches are keyed by parentJobGroupId alone (root is always 0), so a batchId change — e.g.
+  // a new PR build reusing the same PrPage without remounting — must clear them explicitly.
+  useEffect(() => {
+    jobGroupFetchesStarted.current = new Set();
+    setJobGroupsByParent(new Map());
+    setJobGroupErrorsByParent(new Map());
+  }, [batchId]);
 
   const fetchJobGroupsFor = useCallback((parentJobGroupId: number) => {
     if (batchId === undefined) return;

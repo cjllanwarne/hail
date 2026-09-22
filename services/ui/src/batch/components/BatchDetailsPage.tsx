@@ -373,6 +373,11 @@ export function BatchDetailsPage({ basePath, batchId }: Props): JSX.Element {
               <div className="mt-4 text-red-600">Error loading jobs: {error}</div>
             ) : (
               <div className={`relative flex flex-col mt-4 transition-opacity ${jobsLoading || queryDirty ? 'opacity-50' : ''}`}>
+                {error && jobs != null && (
+                  <div className="mb-2 px-3 py-1.5 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded">
+                    Showing previous results — last refresh failed: {error}
+                  </div>
+                )}
                 {jobsLoading && (
                   <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
                     <SpinnerIcon className="h-8 w-8 text-sky-600" />

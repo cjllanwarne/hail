@@ -101,12 +101,15 @@ export function useBatchDetails(basePath: string, batchId: string): UseBatchDeta
       setError(null);
     } catch (e) {
       setError(String(e));
+      // A background refresh failing repeatedly would otherwise poll silently forever with no
+      // visible feedback beyond the (dismissable) error banner; stop and make the user re-arm it.
+      if (kind === 'refresh') setAutoRefresh(false);
     } finally {
       setLoading(false);
       if (kind === 'refresh') setBatchRefreshing(false);
       if (kind === 'initial' || kind === 'search') setJobsLoading(false);
     }
-  }, [api, batchId]);
+  }, [api, batchId, setAutoRefresh]);
 
   useEffect(() => {
     if (isInitialMount.current) {
