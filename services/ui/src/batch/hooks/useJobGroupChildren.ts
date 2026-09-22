@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { hailApiFetch as apiFetch } from '../../shared/hailApiFetch';
-import type { BatchStatus, JobListEntry } from './usePrBatchData';
+import type { JobListEntry } from './jobGroupTypes';
 
 // Mirrors job_group_record_to_dict (batch/batch/batch.py), not the openapi.yaml
 // JobGroupDetailResponse schema, which documents fields (`children`, `parent_job_group_id`)
@@ -19,17 +19,28 @@ export interface JobGroupSummary {
 // submitter explicitly nests it in a sub-group via the hailtop.batch job-group API.
 export const ROOT_JOB_GROUP_ID = 0;
 
+// Structural, not the PR page's `BatchStatus` or the batch page's `Batch` type specifically —
+// both (and anything else with these fields) can be passed to deriveRootJobGroup below.
+export interface JobGroupCounts {
+  n_jobs: number;
+  n_completed: number;
+  n_succeeded: number;
+  n_failed: number;
+  n_cancelled: number;
+  attributes?: Record<string, string>;
+}
+
 // The root job group's counts are the batch's own aggregate counts — no fetch needed.
-export function deriveRootJobGroup(batchStatus: BatchStatus | null): JobGroupSummary | null {
-  return batchStatus
+export function deriveRootJobGroup(batch: JobGroupCounts | null): JobGroupSummary | null {
+  return batch
     ? {
         job_group_id: ROOT_JOB_GROUP_ID,
-        n_jobs: batchStatus.n_jobs,
-        n_completed: batchStatus.n_completed,
-        n_succeeded: batchStatus.n_succeeded,
-        n_failed: batchStatus.n_failed,
-        n_cancelled: batchStatus.n_cancelled,
-        attributes: batchStatus.attributes,
+        n_jobs: batch.n_jobs,
+        n_completed: batch.n_completed,
+        n_succeeded: batch.n_succeeded,
+        n_failed: batch.n_failed,
+        n_cancelled: batch.n_cancelled,
+        attributes: batch.attributes,
       }
     : null;
 }

@@ -189,11 +189,18 @@ If the endpoint you need isn't in the client yet, add it — write its signature
 
 If a page fetches from a *different* service's origin than the one it's served from (e.g. the `ci` PR page calling `batch.hail.is`), the target endpoint needs `@cors_allow_hail_services` (`gear/gear/cors.py`), or the browser blocks it with a `No 'Access-Control-Allow-Origin' header` CORS error even though the request reached the server (HTTP 200).
 
-### Data fetching for a batch: use `useBatchData`, not a per-page fetch
+### Data fetching for a batch: use the shared hooks, not a per-page fetch
 
-For any page or component that needs a batch's status, its full job list, or its job-group hierarchy, use `services/ui/src/batch/components/useBatchData.ts` — don't write a page-local `fetch`/`useState`/`useEffect` trio for these. It owns fetching and caching (including avoiding redundant per-job-group requests) but has no opinion on *when* to poll — a page keeps owning its own refresh policy and calls the hook's `refresh()` on whatever cadence it wants; see `pr.tsx`'s `PrPage` for the pattern.
+Don't write a page-local `fetch`/`useState`/`useEffect` trio for a batch's status, job list, or job-group hierarchy — the hooks in `services/ui/src/batch/hooks/` already own fetching and caching for these, and have no opinion on *when* to poll — a page keeps owning its own refresh policy and calls a hook's `refresh()` on whatever cadence it wants; see `pr.tsx`'s `PrPage` for the pattern. There's no data-fetching library (TanStack Query, SWR) in `services/ui` today, so these hooks hand-roll their own caching — reconsider that if a third fetching-heavy domain or page shows up.
 
-There's no data-fetching library (TanStack Query, SWR) in `services/ui` today, so this hook hand-rolls its own caching. Reconsider that if a third fetching-heavy domain or page shows up.
+Which hook to use depends on whether the page can hold the batch's *entire* job list in memory:
+
+- **`usePrBatchData`** fetches a batch's status and its full (recursive) job list in one shot, no pagination. Only fits pages where a batch's job count is bounded (e.g. CI's own build batches) — the CI PR page (`pr.tsx`) is the only user.
+- **`useBatchDetails`** is the batch details page's own hook (arbitrary user batches, unbounded job counts) — it paginates the job list server-side instead.
+- **`useJobGroupChildren`** fetches a job group's *child* job groups (and their rollup counts) — this is the one real fetch job groups need, since a group's children aren't derivable from a job list either way. Shared by both pages above.
+- **`useJobGroupJobsSource`** abstracts over how a `JobGroupTree` gets the jobs sitting *directly* in a group: `useStaticJobGroupJobs` filters an already-loaded full job list for free (the PR page), while `useLazyJobGroupJobs` fetches each group's jobs on demand and caps the result (the batch details page, which never holds the full list).
+
+`JobGroupTree` and `JobList` (`services/ui/src/batch/components/`) are shared, generic components — not CI-specific despite job groups having first shipped on the CI PR page.
 
 ## Local development with the dev-proxy
 

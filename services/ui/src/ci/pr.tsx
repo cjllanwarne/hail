@@ -6,13 +6,14 @@ import { SegmentedBar, Segment } from '../shared/SegmentedBar';
 import { BatchStateIcon } from '../shared/BatchStateIcon';
 import { useTip, FloatingTip } from '../shared/useTip';
 import { AutoRefreshBar } from '../shared/AutoRefreshBar';
-import { JobGroupTree } from './components/JobGroupTree';
-import { JobList } from './components/JobList';
-import type { JobState, JobListEntry } from './components/JobList';
+import { JobGroupTree } from '../batch/components/JobGroupTree';
+import { JobList } from '../batch/components/JobList';
+import type { JobState, JobListEntry } from '../batch/hooks/jobGroupTypes';
 import { usePrBatchData } from '../batch/hooks/usePrBatchData';
 import type { UsePrBatchDataResult } from '../batch/hooks/usePrBatchData';
 import { useJobGroupChildren, deriveRootJobGroup } from '../batch/hooks/useJobGroupChildren';
 import type { UseJobGroupChildrenResult, JobGroupSummary } from '../batch/hooks/useJobGroupChildren';
+import { useStaticJobGroupJobs } from '../batch/hooks/useJobGroupJobsSource';
 
 const REFRESH_INTERVAL_MS = 30_000;
 
@@ -451,6 +452,7 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
   const [jobsTab, setJobsTab] = useState<'list' | 'groups'>('list');
   const { batchStatus, jobs, jobsError } = batchData;
   const rootJobGroup: JobGroupSummary | null = deriveRootJobGroup(batchStatus);
+  const jobsSource = useStaticJobGroupJobs(jobs);
 
   if (pr.batch) {
     const jobBuckets = jobs ? bucketJobs(jobs) : null;
@@ -580,7 +582,7 @@ function BuildPanel({ pr, basePath, batchBaseUrl, wbBranchName, prNumber, batchD
                 <JobGroupTree
                   batchBaseUrl={batchBaseUrl}
                   batchId={pr.batch.id}
-                  jobs={jobs}
+                  jobsSource={jobsSource}
                   rootJobGroup={rootJobGroup}
                   jobGroupChildren={jobGroupChildren}
                 />

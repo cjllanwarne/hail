@@ -1,19 +1,11 @@
 import { useCallback, useState } from 'react';
 import { hailApiFetch as apiFetch } from '../../shared/hailApiFetch';
+import type { JobListEntry } from './jobGroupTypes';
 
 // Fetches a batch's status and its full (recursive) job list in one shot, no pagination.
 // Only fits pages where a batch's job count is bounded (e.g. CI's own build batches) — a batch
-// details page showing arbitrary user batches needs server-side pagination instead.
-
-export type JobState = 'Pending' | 'Ready' | 'Creating' | 'Running' | 'Failed' | 'Cancelled' | 'Error' | 'Success';
-
-export interface JobListEntry {
-  job_id: number;
-  job_group_id: number;
-  name: string | null;
-  state: JobState;
-  exit_code: number | null;
-}
+// details page showing arbitrary user batches needs server-side pagination instead (see
+// [[useLazyJobGroupJobs]] in useJobGroupJobsSource.ts for how the job-group tree adapts to that).
 
 export interface BatchStatus {
   id: number;

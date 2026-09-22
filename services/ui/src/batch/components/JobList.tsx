@@ -1,7 +1,7 @@
-import { StateIcon } from '../../batch/components/StateIcon';
-import type { JobListEntry } from '../../batch/hooks/usePrBatchData';
+import { StateIcon } from './StateIcon';
+import type { JobListEntry } from '../hooks/jobGroupTypes';
 
-export type { JobState, JobListEntry } from '../../batch/hooks/usePrBatchData';
+export type { JobState, JobListEntry } from '../hooks/jobGroupTypes';
 
 export function JobList({ jobs, batchBaseUrl, batchId }: {
   jobs: JobListEntry[];

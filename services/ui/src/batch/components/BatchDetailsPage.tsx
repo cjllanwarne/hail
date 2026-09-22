@@ -4,12 +4,15 @@ import { formatDurationMs } from './batchModels';
 import { StateIcon, BatchStateIcon } from './StateIcon';
 import { CollapsibleItem } from './CollapsibleItem';
 import { CostDisplay } from './CostDisplay';
+import { JobGroupTree } from './JobGroupTree';
 import { AutoRefreshBar } from '../../shared/AutoRefreshBar';
 import { SpinnerIcon } from '../../shared/SpinnerIcon';
 import { formatIsoTime } from '../../shared/timeUtils';
 import { QueryBuilder } from '../../shared/QueryBuilder';
 import { jobQueryFields } from '../../shared/queryFields';
 import { useBatchDetails } from '../hooks/useBatchDetails';
+import { useJobGroupChildren, deriveRootJobGroup } from '../hooks/useJobGroupChildren';
+import { useLazyJobGroupJobs } from '../hooks/useJobGroupJobsSource';
 import { disableReactUi } from '../../shared/reactUiCookie';
 
 interface Props {
@@ -167,6 +170,14 @@ export function BatchDetailsPage({ basePath, batchId }: Props): JSX.Element {
   const [actionError, setActionError] = useState<string | null>(null);
   const [queryDirty, setQueryDirty] = useState(false);
   const [deleted, setDeleted] = useState(false);
+  const [jobsTab, setJobsTab] = useState<'list' | 'groups'>('list');
+
+  // The jobs table above only ever holds one paginated/searched page of jobs, so — unlike the CI
+  // PR page's job-groups tab, which has the batch's full job list already in memory — a group's
+  // direct jobs are fetched on demand here (see useLazyJobGroupJobs).
+  const jobGroupChildren = useJobGroupChildren(basePath, Number(batchId));
+  const jobsSource = useLazyJobGroupJobs(basePath, Number(batchId));
+  const rootJobGroup = deriveRootJobGroup(batch);
 
   if (loading) {
     return (
@@ -332,35 +343,74 @@ export function BatchDetailsPage({ basePath, batchId }: Props): JSX.Element {
         </div>
 
         <div className="flex flex-col w-full lg:basis-3/5">
-          <QueryBuilder fields={jobQueryFields} q={q} onSearch={setSearch} onDirtyChange={setQueryDirty} />
+          <div className="flex gap-4 border-b border-zinc-200 text-sm">
+            <button
+              type="button"
+              onClick={() => { setJobsTab('list'); }}
+              className={`pb-1.5 -mb-px border-b-2 cursor-pointer ${
+                jobsTab === 'list' ? 'border-sky-600 text-sky-700 font-medium' : 'border-transparent text-zinc-500 hover:text-zinc-700'
+              }`}
+            >
+              Jobs
+            </button>
+            <button
+              type="button"
+              onClick={() => { setJobsTab('groups'); }}
+              className={`pb-1.5 -mb-px border-b-2 cursor-pointer ${
+                jobsTab === 'groups' ? 'border-sky-600 text-sky-700 font-medium' : 'border-transparent text-zinc-500 hover:text-zinc-700'
+              }`}
+            >
+              Job Groups
+            </button>
+          </div>
 
-          {error && jobs == null ? (
-            <div className="mt-4 text-red-600">Error loading jobs: {error}</div>
-          ) : (
-            <div className={`relative flex flex-col mt-4 transition-opacity ${jobsLoading || queryDirty ? 'opacity-50' : ''}`}>
-              {jobsLoading && (
-                <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                  <SpinnerIcon className="h-8 w-8 text-sky-600" />
-                </div>
-              )}
-              <table className="table-auto w-full" id="batch">
-                <thead>
-                  <tr>
-                    <th className="h-12 bg-slate-200 font-light text-md text-left px-4 rounded-tl">ID</th>
-                    <th className="h-12 bg-slate-200 font-light text-md text-left rounded-tr md:rounded-tr-none">Name</th>
-                    <th className="h-12 bg-slate-200 font-light text-md text-left hidden lg:table-cell">Exit Code</th>
-                    <th className="h-12 bg-slate-200 font-light text-md text-left hidden lg:table-cell">Duration</th>
-                    <th className="h-12 bg-slate-200 font-light text-md text-left hidden md:table-cell rounded-tr">Cost</th>
-                  </tr>
-                </thead>
-                <tbody className="border border-collapse border-slate-50">
-                  {(jobs ?? []).map((job) => <JobRow key={job.job_id} basePath={basePath} job={job} />)}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {/* Both tabs stay mounted (hidden via CSS, not conditionally rendered) so switching
+              tabs doesn't discard the current search/page or a job-group's expanded state. */}
+          <div hidden={jobsTab !== 'list'}>
+            <QueryBuilder fields={jobQueryFields} q={q} onSearch={setSearch} onDirtyChange={setQueryDirty} />
 
-          <div className="pt-2 flex w-full justify-end gap-2">
+            {error && jobs == null ? (
+              <div className="mt-4 text-red-600">Error loading jobs: {error}</div>
+            ) : (
+              <div className={`relative flex flex-col mt-4 transition-opacity ${jobsLoading || queryDirty ? 'opacity-50' : ''}`}>
+                {jobsLoading && (
+                  <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                    <SpinnerIcon className="h-8 w-8 text-sky-600" />
+                  </div>
+                )}
+                <table className="table-auto w-full" id="batch">
+                  <thead>
+                    <tr>
+                      <th className="h-12 bg-slate-200 font-light text-md text-left px-4 rounded-tl">ID</th>
+                      <th className="h-12 bg-slate-200 font-light text-md text-left rounded-tr md:rounded-tr-none">Name</th>
+                      <th className="h-12 bg-slate-200 font-light text-md text-left hidden lg:table-cell">Exit Code</th>
+                      <th className="h-12 bg-slate-200 font-light text-md text-left hidden lg:table-cell">Duration</th>
+                      <th className="h-12 bg-slate-200 font-light text-md text-left hidden md:table-cell rounded-tr">Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody className="border border-collapse border-slate-50">
+                    {(jobs ?? []).map((job) => <JobRow key={job.job_id} basePath={basePath} job={job} />)}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4" hidden={jobsTab !== 'groups'}>
+            {rootJobGroup ? (
+              <JobGroupTree
+                batchBaseUrl={basePath}
+                batchId={Number(batchId)}
+                jobsSource={jobsSource}
+                rootJobGroup={rootJobGroup}
+                jobGroupChildren={jobGroupChildren}
+              />
+            ) : (
+              <p className="text-sm text-zinc-500">Loading job groups&hellip;</p>
+            )}
+          </div>
+
+          <div className="pt-2 flex w-full justify-end gap-2" hidden={jobsTab !== 'list'}>
             {hasPreviousPage && (
               <button
                 type="button"
